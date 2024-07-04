@@ -7,6 +7,8 @@
 #define _LINUX_QCOM_GENI_SE
 
 #include <linux/interconnect.h>
+#include <linux/pm_domain.h>
+#include <linux/pm_opp.h>
 
 /**
  * enum geni_se_xfer_mode: Transfer modes supported by Serial Engines
@@ -61,6 +63,7 @@ struct geni_icc_path {
  * @num_clk_levels:	Number of valid clock levels in clk_perf_tbl
  * @clk_perf_tbl:	Table of clock frequency input to serial engine clock
  * @icc_paths:		Array of ICC paths for SE
+ * @pd_list:		List of domain virtual devs
  */
 struct geni_se {
 	void __iomem *base;
@@ -70,6 +73,7 @@ struct geni_se {
 	unsigned int num_clk_levels;
 	unsigned long *clk_perf_tbl;
 	struct geni_icc_path icc_paths[3];
+	struct dev_pm_domain_list *pd_list;
 };
 
 /* Common SE registers */
@@ -302,6 +306,9 @@ struct geni_se {
 
 #define GENI_DEFAULT_BW			Bps_to_icc(1000)
 
+#define DOMAIN_IDX_POWER	0
+#define DOMAIN_IDX_PERF		1
+
 #if IS_ENABLED(CONFIG_QCOM_GENI_SE)
 
 u32 geni_se_get_qup_hw_version(struct geni_se *se);
@@ -522,5 +529,8 @@ void geni_icc_set_tag(struct geni_se *se, u32 tag);
 int geni_icc_enable(struct geni_se *se);
 
 int geni_icc_disable(struct geni_se *se);
+
+int geni_se_transition_d3d0(struct geni_se *se, struct device *pwr_dev,
+			    bool high);
 #endif
 #endif
