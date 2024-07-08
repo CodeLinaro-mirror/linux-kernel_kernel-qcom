@@ -75,6 +75,12 @@
 #define GSI_CPHA		BIT(4)
 #define GSI_CPOL		BIT(5)
 
+struct geni_spi_desc {
+	struct dev_pm_domain_attach_data pd_data;
+	int (*geni_se_set_rate)(struct device *dev, unsigned long clk_freq);
+	int (*geni_se_switch_state)(struct device *dev, bool state);
+};
+
 struct spi_geni_master {
 	struct geni_se se;
 	struct device *dev;
@@ -101,6 +107,7 @@ struct spi_geni_master {
 	struct dma_chan *tx;
 	struct dma_chan *rx;
 	int cur_xfer_mode;
+	const struct geni_spi_desc *dev_data;
 };
 
 static void spi_slv_setup(struct spi_geni_master *mas)
@@ -355,11 +362,19 @@ static void spi_setup_word_len(struct spi_geni_master *mas, u16 mode,
 	writel(word_len, se->base + SE_SPI_WORD_LEN);
 }
 
-static int geni_spi_set_clock_and_bw(struct spi_geni_master *mas,
-					unsigned long clk_hz)
+/*
+ * geni_serial_set_rate - set clock frequency value
+ * @dev: pointer to device structure.
+ * @clk_hz: clock frequency value.
+ *
+ * return: 0 on success otherwise error.
+ */
+static int geni_spi_set_rate(struct device *dev, unsigned long clk_hz)
 {
-	u32 clk_sel, m_clk_cfg, idx, div;
+	struct spi_controller *spi = dev_get_drvdata(dev);
+	struct spi_geni_master *mas = spi_controller_get_devdata(spi);
 	struct geni_se *se = &mas->se;
+	u32 clk_sel, m_clk_cfg, idx, div;
 	int ret;
 
 	if (clk_hz == mas->cur_speed_hz)
@@ -387,11 +402,18 @@ static int geni_spi_set_clock_and_bw(struct spi_geni_master *mas,
 
 	/* Set BW quota for CPU as driver supports FIFO mode only. */
 	se->icc_paths[CPU_TO_GENI].avg_bw = Bps_to_icc(mas->cur_speed_hz);
-	ret = geni_icc_set_bw(se);
-	if (ret)
-		return ret;
+	return geni_icc_set_bw(se);
+}
 
-	return 0;
+static int geni_spi_set_clock_and_bw(struct spi_geni_master *mas,
+				     unsigned long clk_hz)
+{
+	int ret = 0;
+
+	if (mas->dev_data->geni_se_set_rate)
+		ret = mas->dev_data->geni_se_set_rate(mas->se.dev, clk_hz);
+
+	return ret;
 }
 
 static int setup_fifo_params(struct spi_device *spi_slv,
@@ -1039,13 +1061,99 @@ static irqreturn_t geni_spi_isr(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+/*
+ * geni_serial_set_level - set perf level
+ * @dev: pointer to device structure.
+ * @clk_freq: clock frequency value.
+ *
+ * return: 0 on success otherwise error.
+ */
+static int geni_spi_set_level(struct device *dev, unsigned long clk_freq)
+{
+	struct spi_controller *spi = dev_get_drvdata(dev);
+	struct spi_geni_master *mas = spi_controller_get_devdata(spi);
+	struct device *perf_dev = mas->se.pd_list->pd_devs[DOMAIN_IDX_PERF];
+	struct dev_pm_opp *opp;
+	int ret;
+
+	if (!perf_dev)
+		return -ENODEV;
+
+	/*
+	 * Find the nearest frequency level for the requested frequency.
+	 */
+	opp = dev_pm_opp_find_freq_floor(perf_dev, &clk_freq);
+	if (IS_ERR(opp)) {
+		dev_err(dev, "failed to find opp for freq %lu\n", clk_freq);
+		return PTR_ERR(opp);
+	}
+
+	ret = dev_pm_opp_set_opp(perf_dev, opp);
+	dev_pm_opp_put(opp);
+	return ret;
+}
+
+/*
+ * geni_spi_transition_d3d0 - transition from d0 -> d3 or d3 ->d0
+ * @dev: pointer to device structure.
+ * @state: decides whether it is D0 -> D3 or D3 ->D0.
+ *	true	: d3 --> d0 (on)
+ *	false	: d0 --> d3 (off)
+ * return: 0 on success otherwise error.
+ */
+static int geni_spi_transition_d3d0(struct device *dev, bool state)
+{
+	struct spi_controller *spi = dev_get_drvdata(dev);
+	struct spi_geni_master *mas = spi_controller_get_devdata(spi);
+	struct device *pwr_dev = mas->se.pd_list->pd_devs[DOMAIN_IDX_POWER];
+
+	return geni_se_transition_d3d0(&mas->se, pwr_dev, state);
+}
+
+/*
+ * geni_spi_switch_resource_state - switch resources from on -> off or off -> on
+ * @dev: pointer to dev structure.
+ * @state: decides whether it is on or off.
+ *
+ * return: 0 on success otherwise error.
+ */
+static int geni_spi_switch_resource_state(struct device *dev, bool state)
+{
+	struct spi_controller *spi = dev_get_drvdata(dev);
+	struct spi_geni_master *mas = spi_controller_get_devdata(spi);
+	int ret;
+
+	if (state) {
+		ret = geni_icc_enable(&mas->se);
+		if (ret)
+			return ret;
+
+		ret = geni_se_resources_on(&mas->se);
+		if (ret) {
+			geni_icc_disable(&mas->se);
+			return ret;
+		}
+
+		ret = dev_pm_opp_set_rate(mas->dev, mas->cur_sclk_hz);
+	} else {
+		/* Drop the performance state vote */
+		dev_pm_opp_set_rate(dev, 0);
+
+		ret = geni_se_resources_off(&mas->se);
+		if (ret)
+			return ret;
+
+		ret = geni_icc_disable(&mas->se);
+	}
+	return ret;
+}
+
 static int spi_geni_probe(struct platform_device *pdev)
 {
 	int ret, irq;
 	struct spi_controller *spi;
 	struct spi_geni_master *mas;
 	void __iomem *base;
-	struct clk *clk;
 	struct device *dev = &pdev->dev;
 
 	irq = platform_get_irq(pdev, 0);
@@ -1060,10 +1168,6 @@ static int spi_geni_probe(struct platform_device *pdev)
 	if (IS_ERR(base))
 		return PTR_ERR(base);
 
-	clk = devm_clk_get(dev, "se");
-	if (IS_ERR(clk))
-		return PTR_ERR(clk);
-
 	spi = devm_spi_alloc_host(dev, sizeof(*mas));
 	if (!spi)
 		return -ENOMEM;
@@ -1075,16 +1179,42 @@ static int spi_geni_probe(struct platform_device *pdev)
 	mas->se.dev = dev;
 	mas->se.wrapper = dev_get_drvdata(dev->parent);
 	mas->se.base = base;
-	mas->se.clk = clk;
 
-	ret = devm_pm_opp_set_clkname(&pdev->dev, "se");
-	if (ret)
-		return ret;
-	/* OPP table is optional */
-	ret = devm_pm_opp_of_add_table(&pdev->dev);
-	if (ret && ret != -ENODEV) {
-		dev_err(&pdev->dev, "invalid OPP table in device tree\n");
-		return ret;
+	mas->dev_data = device_get_match_data(&pdev->dev);
+	if (!mas->dev_data)
+		return -ENXIO;
+
+	if (of_device_is_compatible(dev->of_node, "qcom,sa8255p-geni-spi")) {
+		ret = dev_pm_domain_attach_list(&pdev->dev, &mas->dev_data->pd_data,
+						&mas->se.pd_list);
+		if (ret < 0)
+			return ret;
+	} else {
+		mas->se.clk = devm_clk_get(mas->se.dev, "se");
+		if (IS_ERR(mas->se.clk))
+			return PTR_ERR(mas->se.clk);
+
+		ret = devm_pm_opp_set_clkname(mas->se.dev, "se");
+		if (ret)
+			return ret;
+
+		/* OPP table is optional */
+		ret = devm_pm_opp_of_add_table(mas->se.dev);
+		if (ret && ret != -ENODEV) {
+			dev_err(mas->se.dev, "invalid OPP table in device tree, ret:%d\n", ret);
+			return ret;
+		}
+
+		ret = geni_icc_get(&mas->se, NULL);
+		if (ret)
+			return ret;
+		/* Set the bus quota to a reasonable value for register access */
+		mas->se.icc_paths[GENI_TO_CORE].avg_bw = Bps_to_icc(CORE_2X_50_MHZ);
+		mas->se.icc_paths[CPU_TO_GENI].avg_bw = GENI_DEFAULT_BW;
+
+		ret = geni_icc_set_bw(&mas->se);
+		if (ret)
+			return ret;
 	}
 
 	spi->bus_num = -1;
@@ -1114,17 +1244,6 @@ static int spi_geni_probe(struct platform_device *pdev)
 
 	if (device_property_read_bool(&pdev->dev, "spi-slave"))
 		spi->target = true;
-
-	ret = geni_icc_get(&mas->se, NULL);
-	if (ret)
-		goto spi_geni_probe_runtime_disable;
-	/* Set the bus quota to a reasonable value for register access */
-	mas->se.icc_paths[GENI_TO_CORE].avg_bw = Bps_to_icc(CORE_2X_50_MHZ);
-	mas->se.icc_paths[CPU_TO_GENI].avg_bw = GENI_DEFAULT_BW;
-
-	ret = geni_icc_set_bw(&mas->se);
-	if (ret)
-		goto spi_geni_probe_runtime_disable;
 
 	ret = spi_geni_init(mas);
 	if (ret)
@@ -1159,6 +1278,7 @@ spi_geni_release_dma:
 	spi_geni_release_dma_chan(mas);
 spi_geni_probe_runtime_disable:
 	pm_runtime_disable(dev);
+	dev_pm_domain_detach_list(mas->se.pd_list);
 	return ret;
 }
 
@@ -1174,39 +1294,41 @@ static void spi_geni_remove(struct platform_device *pdev)
 
 	free_irq(mas->irq, spi);
 	pm_runtime_disable(&pdev->dev);
+	dev_pm_domain_detach_list(mas->se.pd_list);
 }
 
 static int __maybe_unused spi_geni_runtime_suspend(struct device *dev)
 {
 	struct spi_controller *spi = dev_get_drvdata(dev);
 	struct spi_geni_master *mas = spi_controller_get_devdata(spi);
-	int ret;
+	int ret = 0;
 
-	/* Drop the performance state vote */
-	dev_pm_opp_set_rate(dev, 0);
+	if (mas->dev_data->geni_se_switch_state) {
+		ret = mas->dev_data->geni_se_switch_state(dev, false);
+		if (ret) {
+			dev_err(dev, "failed to switch resources, ret:%d\n", ret);
+			return ret;
+		}
+	}
 
-	ret = geni_se_resources_off(&mas->se);
-	if (ret)
-		return ret;
-
-	return geni_icc_disable(&mas->se);
+	return ret;
 }
 
 static int __maybe_unused spi_geni_runtime_resume(struct device *dev)
 {
 	struct spi_controller *spi = dev_get_drvdata(dev);
 	struct spi_geni_master *mas = spi_controller_get_devdata(spi);
-	int ret;
+	int ret = 0;
 
-	ret = geni_icc_enable(&mas->se);
-	if (ret)
-		return ret;
+	if (mas->dev_data->geni_se_switch_state) {
+		ret = mas->dev_data->geni_se_switch_state(dev, true);
+		if (ret) {
+			dev_err(dev, "failed to switch resources, ret:%d\n", ret);
+			return ret;
+		}
+	}
 
-	ret = geni_se_resources_on(&mas->se);
-	if (ret)
-		return ret;
-
-	return dev_pm_opp_set_rate(mas->dev, mas->cur_sclk_hz);
+	return ret;
 }
 
 static int __maybe_unused spi_geni_suspend(struct device *dev)
@@ -1247,8 +1369,23 @@ static const struct dev_pm_ops spi_geni_pm_ops = {
 	SET_SYSTEM_SLEEP_PM_OPS(spi_geni_suspend, spi_geni_resume)
 };
 
+static const struct geni_spi_desc geni_spi = {
+	.geni_se_set_rate = geni_spi_set_rate,
+	.geni_se_switch_state = geni_spi_switch_resource_state,
+};
+
+static const struct geni_spi_desc remotely_geni_spi = {
+	.pd_data = {
+		.pd_names = (const char*[]) { "power", "perf" },
+		.num_pd_names = 2,
+	},
+	.geni_se_set_rate = geni_spi_set_level,
+	.geni_se_switch_state = geni_spi_transition_d3d0,
+};
+
 static const struct of_device_id spi_geni_dt_match[] = {
-	{ .compatible = "qcom,geni-spi" },
+	{ .compatible = "qcom,geni-spi", .data = &geni_spi },
+	{ .compatible = "qcom,sa8255p-geni-spi", .data = &remotely_geni_spi },
 	{}
 };
 MODULE_DEVICE_TABLE(of, spi_geni_dt_match);
