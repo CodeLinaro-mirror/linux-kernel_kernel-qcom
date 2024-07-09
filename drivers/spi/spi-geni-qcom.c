@@ -75,10 +75,20 @@
 #define GSI_CPHA		BIT(4)
 #define GSI_CPOL		BIT(5)
 
+#define MAX_NUM_SE_CLK_FREQ	6
+
 struct geni_spi_desc {
+	unsigned long dfs_freq[MAX_NUM_SE_CLK_FREQ];
+	unsigned int num_dfs_freq;
 	struct dev_pm_domain_attach_data pd_data;
 	int (*geni_se_set_rate)(struct device *dev, unsigned long clk_freq);
 	int (*geni_se_switch_state)(struct device *dev, bool state);
+};
+
+struct spi_clk_cfg {
+	unsigned long sclk_freq;
+	unsigned int idx;
+	unsigned int div;
 };
 
 struct spi_geni_master {
@@ -107,6 +117,7 @@ struct spi_geni_master {
 	struct dma_chan *tx;
 	struct dma_chan *rx;
 	int cur_xfer_mode;
+	struct spi_clk_cfg clk;
 	const struct geni_spi_desc *dev_data;
 };
 
@@ -121,34 +132,25 @@ static void spi_slv_setup(struct spi_geni_master *mas)
 }
 
 static int get_spi_clk_cfg(unsigned int speed_hz,
-			struct spi_geni_master *mas,
-			unsigned int *clk_idx,
-			unsigned int *clk_div)
+			struct spi_geni_master *mas)
 {
-	unsigned long sclk_freq;
 	unsigned int actual_hz;
 	int ret;
 
 	ret = geni_se_clk_freq_match(&mas->se,
 				speed_hz * mas->oversampling,
-				clk_idx, &sclk_freq, false);
+				&mas->clk.idx, &mas->clk.sclk_freq, false);
 	if (ret) {
 		dev_err(mas->dev, "Failed(%d) to find src clk for %dHz\n",
 							ret, speed_hz);
 		return ret;
 	}
 
-	*clk_div = DIV_ROUND_UP(sclk_freq, mas->oversampling * speed_hz);
-	actual_hz = sclk_freq / (mas->oversampling * *clk_div);
+	mas->clk.div = DIV_ROUND_UP(mas->clk.sclk_freq, mas->oversampling * speed_hz);
+	actual_hz = mas->clk.sclk_freq / (mas->oversampling * mas->clk.div);
 
 	dev_dbg(mas->dev, "req %u=>%u sclk %lu, idx %d, div %d\n", speed_hz,
-				actual_hz, sclk_freq, *clk_idx, *clk_div);
-	ret = dev_pm_opp_set_rate(mas->dev, sclk_freq);
-	if (ret)
-		dev_err(mas->dev, "dev_pm_opp_set_rate failed %d\n", ret);
-	else
-		mas->cur_sclk_hz = sclk_freq;
-
+				actual_hz, mas->clk.sclk_freq, mas->clk.idx, mas->clk.div);
 	return ret;
 }
 
@@ -374,35 +376,45 @@ static int geni_spi_set_rate(struct device *dev, unsigned long clk_hz)
 	struct spi_controller *spi = dev_get_drvdata(dev);
 	struct spi_geni_master *mas = spi_controller_get_devdata(spi);
 	struct geni_se *se = &mas->se;
-	u32 clk_sel, m_clk_cfg, idx, div;
+	u32 clk_sel, m_clk_cfg;
 	int ret;
 
 	if (clk_hz == mas->cur_speed_hz)
 		return 0;
 
-	ret = get_spi_clk_cfg(clk_hz, mas, &idx, &div);
+	ret = get_spi_clk_cfg(clk_hz, mas);
 	if (ret) {
 		dev_err(mas->dev, "Err setting clk to %lu: %d\n", clk_hz, ret);
 		return ret;
 	}
 
-	/*
-	 * SPI core clock gets configured with the requested frequency
-	 * or the frequency closer to the requested frequency.
-	 * For that reason requested frequency is stored in the
-	 * cur_speed_hz and referred in the consecutive transfer instead
-	 * of calling clk_get_rate() API.
-	 */
-	mas->cur_speed_hz = clk_hz;
+	ret = dev_pm_opp_set_rate(mas->dev, mas->clk.sclk_freq);
+	if (ret)
+		dev_err(mas->dev, "dev_pm_opp_set_rate failed %d\n", ret);
+	else
+		mas->cur_sclk_hz = mas->clk.sclk_freq;
 
-	clk_sel = idx & CLK_SEL_MSK;
-	m_clk_cfg = (div << CLK_DIV_SHFT) | SER_CLK_EN;
-	writel(clk_sel, se->base + SE_GENI_CLK_SEL);
-	writel(m_clk_cfg, se->base + GENI_SER_M_CLK_CFG);
+	if (mas->cur_xfer_mode != GENI_GPI_DMA) {
+		/*
+		 * SPI core clock gets configured with the requested frequency
+		 * or the frequency closer to the requested frequency.
+		 * For that reason requested frequency is stored in the
+		 * cur_speed_hz and referred in the consecutive transfer instead
+		 * of calling clk_get_rate() API.
+		 */
+		mas->cur_speed_hz = clk_hz;
 
-	/* Set BW quota for CPU as driver supports FIFO mode only. */
-	se->icc_paths[CPU_TO_GENI].avg_bw = Bps_to_icc(mas->cur_speed_hz);
-	return geni_icc_set_bw(se);
+		clk_sel = mas->clk.idx & CLK_SEL_MSK;
+		m_clk_cfg = (mas->clk.div << CLK_DIV_SHFT) | SER_CLK_EN;
+		writel(clk_sel, se->base + SE_GENI_CLK_SEL);
+		writel(m_clk_cfg, se->base + GENI_SER_M_CLK_CFG);
+
+		/* Set BW quota for CPU as driver supports FIFO mode only. */
+		se->icc_paths[CPU_TO_GENI].avg_bw = Bps_to_icc(mas->cur_speed_hz);
+		ret = geni_icc_set_bw(se);
+	}
+
+	return ret;
 }
 
 static int geni_spi_set_clock_and_bw(struct spi_geni_master *mas,
@@ -517,12 +529,14 @@ static int setup_gsi_xfer(struct spi_transfer *xfer, struct spi_geni_master *mas
 	peripheral.pack_en = true;
 	peripheral.word_len = xfer->bits_per_word - MIN_WORD_LEN;
 
-	ret = get_spi_clk_cfg(mas->cur_speed_hz, mas,
-			      &peripheral.clk_src, &peripheral.clk_div);
+	ret = geni_spi_set_clock_and_bw(mas, mas->cur_speed_hz);
 	if (ret) {
-		dev_err(mas->dev, "Err in get_spi_clk_cfg() :%d\n", ret);
+		dev_err(mas->dev, "Err in geni_spi_set_clock_and_bw() :%d\n", ret);
 		return ret;
 	}
+
+	peripheral.clk_src = mas->clk.idx;
+	peripheral.clk_div = mas->clk.div;
 
 	if (!xfer->cs_change) {
 		if (!list_is_last(&xfer->transfer_list, &spi->cur_msg->transfers))
@@ -1079,6 +1093,14 @@ static int geni_spi_set_level(struct device *dev, unsigned long clk_freq)
 	if (!perf_dev)
 		return -ENODEV;
 
+	if (mas->cur_xfer_mode == GENI_GPI_DMA) {
+		ret = get_spi_clk_cfg(clk_freq, mas);
+		if (ret) {
+			dev_err(mas->dev, "Err setting clk to %lu: %d\n", clk_freq, ret);
+			return ret;
+		}
+	}
+
 	/*
 	 * Find the nearest frequency level for the requested frequency.
 	 */
@@ -1189,6 +1211,8 @@ static int spi_geni_probe(struct platform_device *pdev)
 						&mas->se.pd_list);
 		if (ret < 0)
 			return ret;
+		mas->se.clk_perf_tbl = mas->dev_data->dfs_freq;
+		mas->se.num_clk_levels = mas->dev_data->num_dfs_freq;
 	} else {
 		mas->se.clk = devm_clk_get(mas->se.dev, "se");
 		if (IS_ERR(mas->se.clk))
@@ -1381,6 +1405,8 @@ static const struct geni_spi_desc remotely_geni_spi = {
 	},
 	.geni_se_set_rate = geni_spi_set_level,
 	.geni_se_switch_state = geni_spi_transition_d3d0,
+	.dfs_freq = { 19200000, 32000000, 48000000, 64000000, 96000000, 100000000},
+	.num_dfs_freq = MAX_NUM_SE_CLK_FREQ,
 };
 
 static const struct of_device_id spi_geni_dt_match[] = {
