@@ -1,0 +1,55 @@
+Branch: nkela/sa8255p_v6_11_rc2
+Description:
+	This branch is created to enable support for SA8255p Qualcomm SoC and
+Ride platform used in Automotive BU. This platform uses SCMI power, reset,
+performance,sensor protocols for resources(e.g. clocks, regulator, phy etc.)
+voting. SA8255p is a virtual platforms that uses Qualcomm smc/hvc transport
+driver.
+	Multiple SCMI virtual instances are being used to achieve the
+parallelism. SCMI plaform running in SMP enabled VM allows us to send/service multiple
+resource requests in parallel. Each device is assigned its dedicated SCMI
+channel and Tx/Rx doorbells.
+	Resources operations are grouped together to achieve better
+abstraction and reduce the # of requests being sent to SCMI platform(server)
+hence improving boot time KPIs. This design approach was present in LinaroConnect
+2024[1].
+
+Architecture:
+                                                          +--------------------+                                                           
+                                                          |   Shared Memory    |                                                           
+                                                          |                    |                                                           
+                                                          | +----------------+ |                +----------------------------------+       
+     +----------------------------+                     +-+->  ufs-shmem     <-+---+            |            Linux VM              |       
+     |        Firmware VM         |                     | | +----------------+ |   |            |   +----------+   +----------+    |       
+     |                            |                     | |                    |   |            |   |   UFS    |   |   PCIe   |    |       
+     | +---------+ f +----------+ |                     | |                    |   |            |   |  Driver  |   |  Driver  |    |       
+     | |Drivers  <---+  SCMI    | |        e            | |         |          |   |            |   +--+----^--+   +----------+    |       
+     | | (clks,  | g | Server   +-+---------------------+ |                    |   |            |      |    |                      |       
+     | |  vreg,  +--->          | |        h              |         |          |  b|k           |     a|   l|                      |       
+     | |  gpio,  |   +--^-----+-+ |                       |                    |   |            |      |    |                      |       
+     | |  phy,   |      |     |   |                       |         |          |   |            |  +---v----+----+  +----------+   |       
+     | |  etc.)  |      |     |   |                       |                    |   +------------+--+  UFS SCMI   |  | PCIe SCMI|   |       
+     | +---------+      |     |   |                       |                    |                |  |  INSTANCE   |  | INSTANCE |   |       
+     |                  |     |   |                       |  +---------------+ |                |  +-^-----+-----+  +----------+   |       
+     |                  |     |   |                       |  |  pcie-shmem   | |                |    |     |                       |       
+     +------------------+-----+---+                       |  +---------------+ |                +----+-----+-----------------------+       
+                        |     |                           |                    |                     |     |                               
+                        |     |                           +--------------------+                     |     |                               
+                       d|IRQ i|HVC                                                                  j|IRQ c|HVC                            
+                        |     |                                                                      |     |                               
+                        |     |                                                                      |     |                               
++-----------------------+-----v----------------------------------------------------------------------+-----v------------------------------+
+|                                                                                                                                         |
+|                                                                                                                                         |
+|                                                                                                                                         |
+|                                                               HYPERVISOR                                                                |
+|                                                                                                                                         |
+|                                                                                                                                         |
++-----------------------------------------------------------------------------------------------------------------------------------------+
+                                                                                                                                           
+        +--------+   +--------+                                                                         +----------+  +-----------+        
+        | CLOCK  |   |  PHY   |                                                                         |   UFS    |  |   PCIe    |        
+        +--------+   +--------+                                                                         +----------+  +-----------+        
+
+
+[1]: https://resources.linaro.org/en/resource/wfnfEwBhRjLV1PEAJoDDte
