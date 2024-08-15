@@ -159,7 +159,7 @@
 		interrupts = <GIC_SPI 968 IRQ_TYPE_EDGE_RISING>;
 		interrupt-names = "a2p";
 
-		status = "disabled";
+		status = "okay";
 
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -167,6 +167,7 @@
 		scmi5_pd: protocol@11 {
 			reg = <0x11>;
 			#power-domain-cells = <1>;
+			status = "okay";
 		};
 
 		scmi5_dvfs: protocol@13 {
@@ -188,7 +189,7 @@
 		interrupts = <GIC_SPI 969 IRQ_TYPE_EDGE_RISING>;
 		interrupt-names = "a2p";
 
-		status = "disabled";
+		status = "okay";
 
 		#address-cells = <1>;
 		#size-cells = <0>;
