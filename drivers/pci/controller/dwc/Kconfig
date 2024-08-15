@@ -270,6 +270,7 @@ config PCIE_QCOM
 	depends on OF && (ARCH_QCOM || COMPILE_TEST)
 	depends on PCI_MSI
 	select PCIE_DW_HOST
+	select PCI_HOST_COMMON
 	select CRC8
 	help
 	  Say Y here to enable PCIe controller support on Qualcomm SoCs. The
