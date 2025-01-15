@@ -6255,6 +6255,40 @@
 			};
 		};
 
+		system-cache-controller@20400000 {
+			compatible = "qcom,glymur-llcc";
+			reg = <0 0x20400000 0 0x100000>,
+			      <0 0x20600000 0 0x100000>,
+			      <0 0x21800000 0 0x100000>,
+			      <0 0x21A00000 0 0x100000>,
+			      <0 0x21C00000 0 0x100000>,
+			      <0 0x21E00000 0 0x100000>,
+			      <0 0x22800000 0 0x100000>,
+			      <0 0x22A00000 0 0x100000>,
+			      <0 0x22C00000 0 0x100000>,
+			      <0 0x22E00000 0 0x100000>,
+			      <0 0x23800000 0 0x100000>,
+			      <0 0x23A00000 0 0x100000>,
+			      <0 0x23C00000 0 0x100000>,
+			      <0 0x23E00000 0 0x100000>;
+			reg-names = "llcc_broadcast_base",
+				    "llcc_broadcast_and_base",
+				    "llcc0_base",
+				    "llcc1_base",
+				    "llcc2_base",
+				    "llcc3_base",
+				    "llcc4_base",
+				    "llcc5_base",
+				    "llcc6_base",
+				    "llcc7_base",
+				    "llcc8_base",
+				    "llcc9_base",
+				    "llcc10_base",
+				    "llcc11_base";
+
+			interrupts = <GIC_SPI 266 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
 		nsi_noc: interconnect@1d600000 {
 			compatible = "qcom,glymur-nsinoc";
 			reg = <0x0 0x1d600000 0x0 0x14080>;
