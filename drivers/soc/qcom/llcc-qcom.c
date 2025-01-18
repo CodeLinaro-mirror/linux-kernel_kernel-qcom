@@ -3941,22 +3941,21 @@ static int llcc_update_act_ctrl(u32 sid,
 	act_clear_reg = LLCC_TRP_ACT_CLEARn(sid);
 	status_reg = LLCC_TRP_STATUSn(sid);
 
+	regmap = drv_data->bcast_and_regmap ?: drv_data->bcast_regmap;
+
 	/* Set the ACTIVE trigger */
 	act_ctrl_reg_val |= ACT_CTRL_ACT_TRIG;
-	ret = regmap_write(drv_data->bcast_regmap, act_ctrl_reg,
-				act_ctrl_reg_val);
+	ret = regmap_write(regmap, act_ctrl_reg, act_ctrl_reg_val);
 	if (ret)
 		return ret;
 
 	/* Clear the ACTIVE trigger */
 	act_ctrl_reg_val &= ~ACT_CTRL_ACT_TRIG;
-	ret = regmap_write(drv_data->bcast_regmap, act_ctrl_reg,
-				act_ctrl_reg_val);
+	ret = regmap_write(regmap, act_ctrl_reg, act_ctrl_reg_val);
 	if (ret)
 		return ret;
 
 	if (drv_data->version >= LLCC_VERSION_4_1_0_0) {
-		regmap = drv_data->bcast_and_regmap ?: drv_data->bcast_regmap;
 		ret = regmap_read_poll_timeout(regmap, status_reg,
 				      slice_status, (slice_status & ACT_COMPLETE),
 				      0, LLCC_STATUS_READ_DELAY);
@@ -3964,15 +3963,14 @@ static int llcc_update_act_ctrl(u32 sid,
 			return ret;
 	}
 
-	ret = regmap_read_poll_timeout(drv_data->bcast_regmap, status_reg,
-				      slice_status, !(slice_status & status),
-				      0, LLCC_STATUS_READ_DELAY);
+	ret = regmap_read_poll_timeout(regmap, status_reg, slice_status,
+				       !(slice_status & status),
+				       0, LLCC_STATUS_READ_DELAY);
 	if (ret)
 		return ret;
 
 	if (drv_data->version >= LLCC_VERSION_4_1_0_0)
-		ret = regmap_write(drv_data->bcast_regmap, act_clear_reg,
-					ACT_CLEAR);
+		ret = regmap_write(regmap, act_clear_reg, ACT_CLEAR);
 
 	return ret;
 }
