@@ -13,6 +13,8 @@
 #include "pmk8350.dtsi"
 #include "pmr735a.dtsi"
 #include "pmr735b.dtsi"
+#include <dt-bindings/sound/qcom,q6afe.h>
+#include <dt-bindings/sound/qcom,q6asm.h>
 
 / {
 	model = "Qualcomm Technologies, Inc. sm8350 MTP";
@@ -340,7 +342,10 @@
 };
 
 &usb_1_dwc3 {
-	dr_mode = "peripheral";
+	dr_mode = "host";
+	num-hc-interrupters = /bits/ 16 <3>;
+};
+
 };
 
 &usb_1_hsphy {
@@ -381,4 +386,43 @@
 	qcom,gsi-loader = "self";
 	memory-region = <&pil_ipa_fw_mem>;
 	status = "okay";
+};
+
+&sound {
+	compatible = "qcom,sm8250-sndcard";
+	model = "SM8250-MTP-WCD9380-WSA8810-VA-DMIC";
+	audio-routing = "MM_DL1",  "MultiMedia1 Playback",
+		"MultiMedia1 Capture", "MM_UL1",
+		"MM_DL2",  "MultiMedia2 Playback",
+		"MultiMedia2 Capture", "MM_UL2";
+
+	mm1-dai-link {
+		link-name = "MultiMedia1";
+		cpu {
+			sound-dai = <&q6asmdai  MSM_FRONTEND_DAI_MULTIMEDIA1>;
+		};
+	};
+
+	mm2-dai-link {
+		link-name = "MultiMedia2";
+		cpu {
+			sound-dai = <&q6asmdai  MSM_FRONTEND_DAI_MULTIMEDIA2>;
+		};
+	};
+
+	usb-dai-link {
+		link-name = "USB Playback";
+
+		cpu {
+			sound-dai = <&q6afedai USB_RX>;
+		};
+
+		codec {
+			sound-dai = <&usbdai USB_RX>;
+		};
+
+		platform {
+			sound-dai = <&q6routing>;
+		};
+	};
 };
