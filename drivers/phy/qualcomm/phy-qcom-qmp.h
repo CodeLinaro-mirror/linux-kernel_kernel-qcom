@@ -62,6 +62,8 @@
 
 #include "phy-qcom-qmp-pcs-v8_50.h"
 
+#include "phy-qcom-qmp-pcs-v8-n3e.h"
+
 #include "phy-qcom-qmp-usb43-pcs-v8.h"
 
 /* QPHY_SW_RESET bit */
