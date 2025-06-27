@@ -266,6 +266,12 @@ static const struct qcom_pdm_domain_data adsp_charger_pd = {
 	.services = { NULL },
 };
 
+static const struct qcom_pdm_domain_data soccp_root_pd = {
+	.domain = "msm/soccp/root_pd",
+	.instance_id = 186,
+	.services = { NULL },
+};
+
 static const struct qcom_pdm_domain_data adsp_root_pd = {
 	.domain = "msm/adsp/root_pd",
 	.instance_id = 74,
@@ -546,6 +552,11 @@ static const struct qcom_pdm_domain_data *x1e80100_domains[] = {
 	NULL,
 };
 
+static const struct qcom_pdm_domain_data *glymur_domains[] = {
+	&soccp_root_pd,
+	NULL,
+};
+
 static const struct of_device_id qcom_pdm_domains[] __maybe_unused = {
 	{ .compatible = "qcom,apq8016", .data = NULL, },
 	{ .compatible = "qcom,apq8064", .data = NULL, },
@@ -587,6 +598,7 @@ static const struct of_device_id qcom_pdm_domains[] __maybe_unused = {
 	{ .compatible = "qcom,sm8750", .data = sm8550_domains, },
 	{ .compatible = "qcom,x1e80100", .data = x1e80100_domains, },
 	{ .compatible = "qcom,x1p42100", .data = x1e80100_domains, },
+	{ .compatible = "qcom,glymur", .data = glymur_domains, },
 	{},
 };
 
