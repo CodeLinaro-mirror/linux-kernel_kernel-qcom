@@ -15,6 +15,8 @@
 #include <linux/soc/qcom/pmic_glink.h>
 #include <linux/spinlock.h>
 
+#include <linux/remoteproc/qcom_rproc.h>
+
 #define PMIC_GLINK_SEND_TIMEOUT (5 * HZ)
 
 enum {
@@ -49,10 +51,21 @@ struct pmic_glink {
 	/* serializing clients list updates */
 	spinlock_t client_lock;
 	struct list_head clients;
+
+	void *notifier;
+	struct notifier_block ssr_nb;
 };
 
 static struct pmic_glink *__pmic_glink;
 static DEFINE_MUTEX(__pmic_glink_lock);
+
+struct pmic_glink_match_data {
+	unsigned long client_mask;
+
+	const char *service_name;
+	const char *service_path;
+	const char *ssr_name;
+};
 
 struct pmic_glink_client {
 	struct list_head node;
@@ -232,6 +245,28 @@ static void pmic_glink_state_notify_clients(struct pmic_glink *pg, unsigned int 
 	}
 }
 
+static int pmic_glink_ssr_callback(struct notifier_block *nb,
+				   unsigned long code, void *data)
+{
+	struct pmic_glink *pg = container_of(nb, struct pmic_glink, ssr_nb);
+
+	guard(mutex)(&pg->state_lock);
+
+	switch (code) {
+	case QCOM_SSR_BEFORE_SHUTDOWN:
+		pg->pdr_state = SERVREG_SERVICE_STATE_DOWN;
+		break;
+	case QCOM_SSR_AFTER_POWERUP:
+		pg->pdr_state = SERVREG_SERVICE_STATE_UP;
+		break;
+	default:
+		break;
+	}
+	pmic_glink_state_notify_clients(pg, pg->pdr_state);
+
+	return 0;
+}
+
 static void pmic_glink_pdr_callback(int state, char *svc_path, void *priv)
 {
 	struct pmic_glink *pg = priv;
@@ -299,7 +334,7 @@ static struct rpmsg_driver pmic_glink_rpmsg_driver = {
 
 static int pmic_glink_probe(struct platform_device *pdev)
 {
-	const unsigned long *match_data;
+	const struct pmic_glink_match_data *match_data;
 	struct pdr_service *service;
 	struct pmic_glink *pg;
 	int ret;
@@ -316,17 +351,19 @@ static int pmic_glink_probe(struct platform_device *pdev)
 	spin_lock_init(&pg->client_lock);
 	mutex_init(&pg->state_lock);
 
-	match_data = (unsigned long *)of_device_get_match_data(&pdev->dev);
+	match_data = of_device_get_match_data(&pdev->dev);
 	if (!match_data)
 		return -EINVAL;
 
-	pg->client_mask = *match_data;
+	pg->client_mask = match_data->client_mask;
 
-	pg->pdr = pdr_handle_alloc(pmic_glink_pdr_callback, pg);
-	if (IS_ERR(pg->pdr)) {
-		ret = dev_err_probe(&pdev->dev, PTR_ERR(pg->pdr),
-				    "failed to initialize pdr\n");
-		return ret;
+	if (match_data->service_name) {
+		pg->pdr = pdr_handle_alloc(pmic_glink_pdr_callback, pg);
+		if (IS_ERR(pg->pdr)) {
+			ret = dev_err_probe(&pdev->dev, PTR_ERR(pg->pdr),
+					    "failed to initialize pdr\n");
+			return ret;
+		}
 	}
 
 	if (pg->client_mask & BIT(PMIC_GLINK_CLIENT_UCSI)) {
@@ -345,11 +382,20 @@ static int pmic_glink_probe(struct platform_device *pdev)
 			goto out_release_altmode_aux;
 	}
 
-	service = pdr_add_lookup(pg->pdr, "tms/servreg", "msm/adsp/charger_pd");
-	if (IS_ERR(service)) {
-		ret = dev_err_probe(&pdev->dev, PTR_ERR(service),
-				    "failed adding pdr lookup for charger_pd\n");
-		goto out_release_aux_devices;
+	if (match_data->ssr_name) {
+		pg->ssr_nb.notifier_call = pmic_glink_ssr_callback;
+		pg->notifier = qcom_register_ssr_notifier(match_data->ssr_name, &pg->ssr_nb);
+		if (IS_ERR(pg->notifier))
+			goto out_release_aux_devices;
+	}
+
+	if (match_data->service_name) {
+		service = pdr_add_lookup(pg->pdr, match_data->service_name, match_data->service_path);
+		if (IS_ERR(service)) {
+			ret = dev_err_probe(&pdev->dev, PTR_ERR(service),
+					    "failed adding pdr lookup for charger_pd\n");
+			goto out_release_aux_devices;
+		}
 	}
 
 	mutex_lock(&__pmic_glink_lock);
@@ -390,12 +436,24 @@ static void pmic_glink_remove(struct platform_device *pdev)
 	__pmic_glink = NULL;
 }
 
-static const unsigned long pmic_glink_sm8450_client_mask = BIT(PMIC_GLINK_CLIENT_BATT) |
-							   BIT(PMIC_GLINK_CLIENT_ALTMODE) |
-							   BIT(PMIC_GLINK_CLIENT_UCSI);
+static const unsigned long pmic_glink_client_mask = BIT(PMIC_GLINK_CLIENT_BATT) |
+						    BIT(PMIC_GLINK_CLIENT_ALTMODE) |
+						    BIT(PMIC_GLINK_CLIENT_UCSI);
+
+static struct pmic_glink_match_data pmic_glink_sm8450_match_data = {
+	.client_mask  =  pmic_glink_client_mask,
+	.service_name = "tms/servreg",
+	.service_path = "msm/adsp/root_pd",
+};
+
+static struct pmic_glink_match_data pmic_glink_glymur_match_data = {
+	.client_mask  =  pmic_glink_client_mask,
+	.ssr_name = "soccp",
+};
 
 static const struct of_device_id pmic_glink_of_match[] = {
-	{ .compatible = "qcom,pmic-glink", .data = &pmic_glink_sm8450_client_mask },
+	{ .compatible = "qcom,pmic-glink", .data = &pmic_glink_sm8450_match_data },
+	{ .compatible = "qcom,glymur-pmic-glink", .data = &pmic_glink_glymur_match_data },
 	{}
 };
 MODULE_DEVICE_TABLE(of, pmic_glink_of_match);
