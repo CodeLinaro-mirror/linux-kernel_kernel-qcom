@@ -558,6 +558,32 @@ static void qcom_scm_set_download_mode(u32 dload_mode)
 		dev_err(__scm->dev, "failed to set download mode: %d\n", ret);
 }
 
+void *qcom_scm_pas_ctx_init(struct device *dev, u32 peripheral, phys_addr_t mem_phys,
+			    size_t mem_size, bool save_mdt_ctx)
+{
+	struct qcom_scm_pas_ctx *ctx;
+
+	ctx = devm_kzalloc(dev, sizeof(*ctx), GFP_KERNEL);
+	if (!ctx)
+		return NULL;
+
+	ctx->dev = dev;
+	ctx->peripheral = peripheral;
+	ctx->mem_phys = mem_phys;
+	ctx->mem_size = mem_size;
+	ctx->save_mdt_ctx = save_mdt_ctx;
+	ctx->metadata = NULL;
+
+	if (save_mdt_ctx) {
+		ctx->metadata = devm_kzalloc(dev, sizeof(*ctx->metadata), GFP_KERNEL);
+		if (!ctx->metadata)
+			return NULL;
+	}
+
+	return ctx;
+}
+EXPORT_SYMBOL_GPL(qcom_scm_pas_ctx_init);
+
 /**
  * qcom_scm_pas_init_image() - Initialize peripheral authentication service
  *			       state machine for a given peripheral, using the
