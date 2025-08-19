@@ -417,6 +417,35 @@ static void *qcom_pas_da_to_va(struct rproc *rproc, u64 da, size_t len, bool *is
 	return pas->mem_region + offset;
 }
 
+static int qcom_pas_parse_firmware(struct rproc *rproc, const struct firmware *fw)
+{
+	struct qcom_pas *pas = rproc->priv;
+        size_t output_rt_size = MAX_RSCTABLE_SIZE;
+        void *output_rt;
+        int ret;
+       
+        ret = qcom_register_dump_segments(rproc, fw);
+        if (ret) {
+                dev_err(pas->dev, "Error in registering dump segments\n");
+                return ret;
+        }
+       
+        if (!rproc->has_iommu)
+                return ret;
+       
+        ret = qcom_scm_pas_get_rsc_table(pas->pas_id, NULL, 0, &output_rt, &output_rt_size);
+        if (ret) {
+                dev_err(pas->dev, "error %d getting resource_table\n", ret);
+                return ret;
+        }
+
+	rproc->cached_table = output_rt;
+	rproc->table_ptr = rproc->cached_table;
+        rproc->table_sz = output_rt_size;
+
+        return ret;
+}
+
 static unsigned long qcom_pas_panic(struct rproc *rproc)
 {
 	struct qcom_pas *pas = rproc->priv;
@@ -474,7 +503,7 @@ static const struct rproc_ops qcom_pas_ops = {
 	.start = qcom_pas_start,
 	.stop = qcom_pas_stop,
 	.da_to_va = qcom_pas_da_to_va,
-	.parse_fw = qcom_register_dump_segments,
+	.parse_fw = qcom_pas_parse_firmware,
 	.load = qcom_pas_load,
 	.panic = qcom_pas_panic,
 	.attach = qcom_pas_attach,
@@ -485,7 +514,7 @@ static const struct rproc_ops qcom_pas_minidump_ops = {
 	.start = qcom_pas_start,
 	.stop = qcom_pas_stop,
 	.da_to_va = qcom_pas_da_to_va,
-	.parse_fw = qcom_register_dump_segments,
+	.parse_fw = qcom_pas_parse_firmware,
 	.load = qcom_pas_load,
 	.panic = qcom_pas_panic,
 	.coredump = qcom_pas_minidump,

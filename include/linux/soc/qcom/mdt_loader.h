@@ -8,6 +8,8 @@
 #define QCOM_MDT_TYPE_HASH	(2 << 24)
 #define QCOM_MDT_RELOCATABLE	BIT(27)
 
+#define MAX_RSCTABLE_SIZE      SZ_16K
+
 struct device;
 struct firmware;
 struct qcom_scm_pas_ctx;
