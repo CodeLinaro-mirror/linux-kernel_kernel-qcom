@@ -254,7 +254,6 @@ static void expect_sea_s1ptw_handler(struct ex_regs *regs)
 {
 	u64 esr = read_sysreg(esr_el1);
 
-
 	GUEST_ASSERT_EQ(regs->pc, expected_abort_pc);
 	GUEST_ASSERT_EQ(ESR_ELx_EC(esr), ESR_ELx_EC_DABT_CUR);
 	GUEST_ASSERT_EQ((esr & ESR_ELx_FSC), ESR_ELx_FSC_SEA_TTW(3));

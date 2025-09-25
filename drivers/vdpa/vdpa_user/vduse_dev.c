@@ -2023,6 +2023,14 @@ static int vduse_dev_init_vdpa(struct vduse_dev *dev, const char *name)
 
 	dev->vdev = vdev;
 	vdev->dev = dev;
+	vdev->vdpa.dev.dma_mask = &vdev->vdpa.dev.coherent_dma_mask;
+	ret = dma_set_mask_and_coherent(&vdev->vdpa.dev, DMA_BIT_MASK(64));
+	if (ret) {
+		put_device(&vdev->vdpa.dev);
+		return ret;
+	}
+	set_dma_ops(&vdev->vdpa.dev, &vduse_dev_dma_ops);
+	vdev->vdpa.vmap.dma_dev = &vdev->vdpa.dev;
 	vdev->vdpa.mdev = &vduse_mgmt->mgmt_dev;
 
 	return 0;

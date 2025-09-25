@@ -62,7 +62,7 @@ static struct ipc_namespace *create_ipc_ns(struct user_namespace *user_ns,
 	if (ns == NULL)
 		goto fail_dec;
 
-	err = ns_common_init(&ns->ns, &ipcns_operations, true);
+	err = ns_common_init(ns, &ipcns_operations);
 	if (err)
 		goto fail_free;
 
@@ -97,7 +97,7 @@ fail_mq:
 
 fail_put:
 	put_user_ns(ns->user_ns);
-	ns_free_inum(&ns->ns);
+	ns_common_free(ns);
 fail_free:
 	kfree(ns);
 fail_dec:
@@ -161,7 +161,7 @@ static void free_ipc_ns(struct ipc_namespace *ns)
 
 	dec_ipc_namespaces(ns->ucounts);
 	put_user_ns(ns->user_ns);
-	ns_free_inum(&ns->ns);
+	ns_common_free(ns);
 	kfree(ns);
 }
 
@@ -199,7 +199,7 @@ static void free_ipc(struct work_struct *unused)
  */
 void put_ipc_ns(struct ipc_namespace *ns)
 {
-	if (refcount_dec_and_lock(&ns->ns.count, &mq_lock)) {
+	if (ns_ref_put_and_lock(ns, &mq_lock)) {
 		mq_clear_sbinfo(ns);
 		spin_unlock(&mq_lock);
 

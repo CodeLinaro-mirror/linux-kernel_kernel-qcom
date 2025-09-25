@@ -63,6 +63,11 @@ properties:
 
       - items:
           - enum:
+              - qcom,glymur-crd
+          - const: qcom,glymur
+
+      - items:
+          - enum:
               - microsoft,dempsey
               - microsoft,makepeace
               - microsoft,moneypenny
@@ -1011,9 +1016,9 @@ properties:
           - enum:
               - qcom,sm8450-hdk
               - qcom,sm8450-qrd
+              - samsung,r0q
               - sony,pdx223
               - sony,pdx224
-              - samsung,r0q
           - const: qcom,sm8450
 
       - items:
@@ -1073,6 +1078,12 @@ properties:
               - microsoft,romulus15
               - qcom,x1e80100-crd
               - qcom,x1e80100-qcp
+          - const: qcom,x1e80100
+
+      - items:
+          - enum:
+              - qcom,hamoa-iot-evk
+          - const: qcom,hamoa-iot-som
           - const: qcom,x1e80100
 
       - items:

@@ -76,13 +76,11 @@ doc_begin_func = KernRe(str(doc_com) +			# initial " * '
 # Here begins a long set of transformations to turn structure member prefixes
 # and macro invocations into something we can parse and generate kdoc for.
 #
-struct_attribute = KernRe(r"__attribute__\s*\(\([a-z0-9,_\*\s\(\)]*\)\)",
-                          flags=re.I | re.S, cache=False)
 struct_args_pattern = r'([^,)]+)'
 
-struct_prefixes = [
+struct_xforms = [
     # Strip attributes
-    (struct_attribute, ' '),
+    (KernRe(r"__attribute__\s*\(\([a-z0-9,_\*\s\(\)]*\)\)", flags=re.I | re.S, cache=False), ' '),
     (KernRe(r'\s*__aligned\s*\([^;]*\)', re.S), ' '),
     (KernRe(r'\s*__counted_by\s*\([^;]*\)', re.S), ' '),
     (KernRe(r'\s*__counted_by_(le|be)\s*\([^;]*\)', re.S), ' '),
@@ -90,6 +88,7 @@ struct_prefixes = [
     (KernRe(r'\s*CRYPTO_MINALIGN_ATTR', re.S), ' '),
     (KernRe(r'\s*____cacheline_aligned_in_smp', re.S), ' '),
     (KernRe(r'\s*____cacheline_aligned', re.S), ' '),
+    (KernRe(r'\s*__cacheline_group_(begin|end)\([^\)]+\);'), ''),
     #
     # Unwrap struct_group macros based on this definition:
     # __struct_group(TAG, NAME, ATTRS, MEMBERS...)
@@ -162,6 +161,43 @@ struct_nested_prefixes = [
     (re.compile(r'\bSTRUCT_GROUP\('), r'\1'),
 ]
 
+#
+# Transforms for function prototypes
+#
+function_xforms  = [
+    (KernRe(r"^static +"), ""),
+    (KernRe(r"^extern +"), ""),
+    (KernRe(r"^asmlinkage +"), ""),
+    (KernRe(r"^inline +"), ""),
+    (KernRe(r"^__inline__ +"), ""),
+    (KernRe(r"^__inline +"), ""),
+    (KernRe(r"^__always_inline +"), ""),
+    (KernRe(r"^noinline +"), ""),
+    (KernRe(r"^__FORTIFY_INLINE +"), ""),
+    (KernRe(r"__init +"), ""),
+    (KernRe(r"__init_or_module +"), ""),
+    (KernRe(r"__deprecated +"), ""),
+    (KernRe(r"__flatten +"), ""),
+    (KernRe(r"__meminit +"), ""),
+    (KernRe(r"__must_check +"), ""),
+    (KernRe(r"__weak +"), ""),
+    (KernRe(r"__sched +"), ""),
+    (KernRe(r"_noprof"), ""),
+    (KernRe(r"__printf\s*\(\s*\d*\s*,\s*\d*\s*\) +"), ""),
+    (KernRe(r"__(?:re)?alloc_size\s*\(\s*\d+\s*(?:,\s*\d+\s*)?\) +"), ""),
+    (KernRe(r"__diagnose_as\s*\(\s*\S+\s*(?:,\s*\d+\s*)*\) +"), ""),
+    (KernRe(r"DECL_BUCKET_PARAMS\s*\(\s*(\S+)\s*,\s*(\S+)\s*\)"), r"\1, \2"),
+    (KernRe(r"__attribute_const__ +"), ""),
+    (KernRe(r"__attribute__\s*\(\((?:[\w\s]+(?:\([^)]*\))?\s*,?)+\)\)\s+"), ""),
+]
+
+#
+# Apply a set of transforms to a block of text.
+#
+def apply_transforms(xforms, text):
+    for search, subst in xforms:
+        text = search.sub(subst, text)
+    return text
 
 #
 # A little helper to get rid of excess white space
@@ -314,6 +350,7 @@ class KernelEntry:
             self.section = SECTION_DEFAULT
             self._contents = []
 
+python_warning = False
 
 class KernelDoc:
     """
@@ -347,9 +384,13 @@ class KernelDoc:
         # We need Python 3.7 for its "dicts remember the insertion
         # order" guarantee
         #
-        if sys.version_info.major == 3 and sys.version_info.minor < 7:
+        global python_warning
+        if (not python_warning and
+            sys.version_info.major == 3 and sys.version_info.minor < 7):
+
             self.emit_msg(0,
                           'Python 3.7 or later is required for correct results')
+            python_warning = True
 
     def emit_msg(self, ln, msg, warning=True):
         """Emit a message"""
@@ -422,36 +463,26 @@ class KernelDoc:
 
         param = KernRe(r'[\[\)].*').sub('', param, count=1)
 
-        if dtype == "" and param.endswith("..."):
-            if KernRe(r'\w\.\.\.$').search(param):
-                # For named variable parameters of the form `x...`,
-                # remove the dots
-                param = param[:-3]
-            else:
-                # Handles unnamed variable parameters
-                param = "..."
+        #
+        # Look at various "anonymous type" cases.
+        #
+        if dtype == '':
+            if param.endswith("..."):
+                if len(param) > 3: # there is a name provided, use that
+                    param = param[:-3]
+                if not self.entry.parameterdescs.get(param):
+                    self.entry.parameterdescs[param] = "variable arguments"
 
-            if param not in self.entry.parameterdescs or \
-                not self.entry.parameterdescs[param]:
+            elif (not param) or param == "void":
+                param = "void"
+                self.entry.parameterdescs[param] = "no arguments"
 
-                self.entry.parameterdescs[param] = "variable arguments"
-
-        elif dtype == "" and (not param or param == "void"):
-            param = "void"
-            self.entry.parameterdescs[param] = "no arguments"
-
-        elif dtype == "" and param in ["struct", "union"]:
-            # Handle unnamed (anonymous) union or struct
-            dtype = param
-            param = "{unnamed_" + param + "}"
-            self.entry.parameterdescs[param] = "anonymous\n"
-            self.entry.anon_struct_union = True
-
-        # Handle cache group enforcing variables: they do not need
-        # to be described in header files
-        elif "__cacheline_group" in param:
-            # Ignore __cacheline_group_begin and __cacheline_group_end
-            return
+            elif param in ["struct", "union"]:
+                # Handle unnamed (anonymous) union or struct
+                dtype = param
+                param = "{unnamed_" + param + "}"
+                self.entry.parameterdescs[param] = "anonymous\n"
+                self.entry.anon_struct_union = True
 
         # Warn if parameter has no description
         # (but ignore ones starting with # as these are not parameters
@@ -787,8 +818,7 @@ class KernelDoc:
         # Go through the list of members applying all of our transformations.
         #
         members = trim_private_members(members)
-        for search, sub in struct_prefixes:
-            members = search.sub(sub, members)
+        members = apply_transforms(struct_xforms, members)
 
         nested = NestedMatch()
         for search, sub in struct_nested_prefixes:
@@ -901,62 +931,31 @@ class KernelDoc:
         Stores a function of function macro inside self.entries array.
         """
 
-        func_macro = False
+        found = func_macro = False
         return_type = ''
         decl_type = 'function'
-
-        # Prefixes that would be removed
-        sub_prefixes = [
-            (r"^static +", "", 0),
-            (r"^extern +", "", 0),
-            (r"^asmlinkage +", "", 0),
-            (r"^inline +", "", 0),
-            (r"^__inline__ +", "", 0),
-            (r"^__inline +", "", 0),
-            (r"^__always_inline +", "", 0),
-            (r"^noinline +", "", 0),
-            (r"^__FORTIFY_INLINE +", "", 0),
-            (r"__init +", "", 0),
-            (r"__init_or_module +", "", 0),
-            (r"__deprecated +", "", 0),
-            (r"__flatten +", "", 0),
-            (r"__meminit +", "", 0),
-            (r"__must_check +", "", 0),
-            (r"__weak +", "", 0),
-            (r"__sched +", "", 0),
-            (r"_noprof", "", 0),
-            (r"__printf\s*\(\s*\d*\s*,\s*\d*\s*\) +", "", 0),
-            (r"__(?:re)?alloc_size\s*\(\s*\d+\s*(?:,\s*\d+\s*)?\) +", "", 0),
-            (r"__diagnose_as\s*\(\s*\S+\s*(?:,\s*\d+\s*)*\) +", "", 0),
-            (r"DECL_BUCKET_PARAMS\s*\(\s*(\S+)\s*,\s*(\S+)\s*\)", r"\1, \2", 0),
-            (r"__attribute_const__ +", "", 0),
-
-            # It seems that Python support for re.X is broken:
-            # At least for me (Python 3.13), this didn't work
-#            (r"""
-#              __attribute__\s*\(\(
-#                (?:
-#                    [\w\s]+          # attribute name
-#                    (?:\([^)]*\))?   # attribute arguments
-#                    \s*,?            # optional comma at the end
-#                )+
-#              \)\)\s+
-#             """, "", re.X),
-
-            # So, remove whitespaces and comments from it
-            (r"__attribute__\s*\(\((?:[\w\s]+(?:\([^)]*\))?\s*,?)+\)\)\s+", "", 0),
-        ]
-
-        for search, sub, flags in sub_prefixes:
-            prototype = KernRe(search, flags).sub(sub, prototype)
-
-        # Macros are a special case, as they change the prototype format
+        #
+        # Apply the initial transformations.
+        #
+        prototype = apply_transforms(function_xforms, prototype)
+        #
+        # If we have a macro, remove the "#define" at the front.
+        #
         new_proto = KernRe(r"^#\s*define\s+").sub("", prototype)
         if new_proto != prototype:
-            is_define_proto = True
             prototype = new_proto
-        else:
-            is_define_proto = False
+            #
+            # Dispense with the simple "#define A B" case here; the key
+            # is the space after the name of the symbol being defined.
+            # NOTE that the seemingly misnamed "func_macro" indicates a
+            # macro *without* arguments.
+            #
+            r = KernRe(r'^(\w+)\s+')
+            if r.search(prototype):
+                return_type = ''
+                declaration_name = r.group(1)
+                func_macro = True
+                found = True
 
         # Yes, this truly is vile.  We are looking for:
         # 1. Return type (may be nothing if we're looking at a macro)
@@ -974,91 +973,73 @@ class KernelDoc:
         # - atomic_set (macro)
         # - pci_match_device, __copy_to_user (long return type)
 
-        name = r'[a-zA-Z0-9_~:]+'
-        prototype_end1 = r'[^\(]*'
-        prototype_end2 = r'[^\{]*'
-        prototype_end = fr'\(({prototype_end1}|{prototype_end2})\)'
-
-        # Besides compiling, Perl qr{[\w\s]+} works as a non-capturing group.
-        # So, this needs to be mapped in Python with (?:...)? or (?:...)+
-
+        name = r'\w+'
         type1 = r'(?:[\w\s]+)?'
         type2 = r'(?:[\w\s]+\*+)+'
-
-        found = False
-
-        if is_define_proto:
-            r = KernRe(r'^()(' + name + r')\s+')
-
-            if r.search(prototype):
-                return_type = ''
-                declaration_name = r.group(2)
-                func_macro = True
-
-                found = True
-
+        #
+        # Attempt to match first on (args) with no internal parentheses; this
+        # lets us easily filter out __acquires() and other post-args stuff.  If
+        # that fails, just grab the rest of the line to the last closing
+        # parenthesis.
+        #
+        proto_args = r'\(([^\(]*|.*)\)'
+        #
+        # (Except for the simple macro case) attempt to split up the prototype
+        # in the various ways we understand.
+        #
         if not found:
             patterns = [
-                rf'^()({name})\s*{prototype_end}',
-                rf'^({type1})\s+({name})\s*{prototype_end}',
-                rf'^({type2})\s*({name})\s*{prototype_end}',
+                rf'^()({name})\s*{proto_args}',
+                rf'^({type1})\s+({name})\s*{proto_args}',
+                rf'^({type2})\s*({name})\s*{proto_args}',
             ]
 
             for p in patterns:
                 r = KernRe(p)
-
                 if r.match(prototype):
-
                     return_type = r.group(1)
                     declaration_name = r.group(2)
                     args = r.group(3)
-
                     self.create_parameter_list(ln, decl_type, args, ',',
                                                declaration_name)
-
                     found = True
                     break
+        #
+        # Parsing done; make sure that things are as we expect.
+        #
         if not found:
             self.emit_msg(ln,
                           f"cannot understand function prototype: '{prototype}'")
             return
-
         if self.entry.identifier != declaration_name:
-            self.emit_msg(ln,
-                          f"expecting prototype for {self.entry.identifier}(). Prototype was for {declaration_name}() instead")
+            self.emit_msg(ln, f"expecting prototype for {self.entry.identifier}(). "
+                          f"Prototype was for {declaration_name}() instead")
             return
-
         self.check_sections(ln, declaration_name, "function")
-
         self.check_return_section(ln, declaration_name, return_type)
+        #
+        # Store the result.
+        #
+        self.output_declaration(decl_type, declaration_name,
+                                typedef=('typedef' in return_type),
+                                functiontype=return_type,
+                                purpose=self.entry.declaration_purpose,
+                                func_macro=func_macro)
 
-        if 'typedef' in return_type:
-            self.output_declaration(decl_type, declaration_name,
-                                    typedef=True,
-                                    functiontype=return_type,
-                                    purpose=self.entry.declaration_purpose,
-                                    func_macro=func_macro)
-        else:
-            self.output_declaration(decl_type, declaration_name,
-                                    typedef=False,
-                                    functiontype=return_type,
-                                    purpose=self.entry.declaration_purpose,
-                                    func_macro=func_macro)
 
     def dump_typedef(self, ln, proto):
         """
         Stores a typedef inside self.entries array.
         """
-
-        typedef_type = r'((?:\s+[\w*]+\b){0,7}\s+(?:\w+\b|\*+))\s*'
+        #
+        # We start by looking for function typedefs.
+        #
+        typedef_type = r'typedef((?:\s+[\w*]+\b){0,7}\s+(?:\w+\b|\*+))\s*'
         typedef_ident = r'\*?\s*(\w\S+)\s*'
         typedef_args = r'\s*\((.*)\);'
 
-        typedef1 = KernRe(r'typedef' + typedef_type + r'\(' + typedef_ident + r'\)' + typedef_args)
-        typedef2 = KernRe(r'typedef' + typedef_type + typedef_ident + typedef_args)
-
-        # Strip comments
-        proto = KernRe(r'/\*.*?\*/', flags=re.S).sub('', proto)
+        typedef1 = KernRe(typedef_type + r'\(' + typedef_ident + r'\)' + typedef_args)
+        typedef2 = KernRe(typedef_type + typedef_ident + typedef_args)
 
         # Parse function typedef prototypes
         for r in [typedef1, typedef2]:
@@ -1074,21 +1055,16 @@ class KernelDoc:
                               f"expecting prototype for typedef {self.entry.identifier}. Prototype was for typedef {declaration_name} instead\n")
                 return
 
-            decl_type = 'function'
-            self.create_parameter_list(ln, decl_type, args, ',', declaration_name)
+            self.create_parameter_list(ln, 'function', args, ',', declaration_name)
 
-            self.output_declaration(decl_type, declaration_name,
+            self.output_declaration('function', declaration_name,
                                     typedef=True,
                                     functiontype=return_type,
                                     purpose=self.entry.declaration_purpose)
             return
-
-        # Handle nested parentheses or brackets
-        r = KernRe(r'(\(*.\)\s*|\[*.\]\s*);$')
-        while r.search(proto):
-            proto = r.sub('', proto)
-
-        # Parse simple typedefs
+        #
+        # Not a function, try to parse a simple typedef.
+        #
         r = KernRe(r'typedef.*\s+(\w+)\s*;')
         if r.match(proto):
             declaration_name = r.group(1)

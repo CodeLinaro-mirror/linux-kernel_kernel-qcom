@@ -66,7 +66,7 @@ static const struct vec_type vec_types[] = {
 };
 
 #define VL_TESTS (((TEST_VQ_MAX - SVE_VQ_MIN) + 1) * 4)
-#define FLAG_TESTS 2
+#define FLAG_TESTS 4
 #define FPSIMD_TESTS 2
 
 #define EXPECTED_TESTS ((VL_TESTS + FLAG_TESTS + FPSIMD_TESTS) * ARRAY_SIZE(vec_types))
@@ -172,6 +172,38 @@ static int set_sve(pid_t pid, const struct vec_type *type,
 	if (ret == -1)
 		ksft_perror("ptrace(PTRACE_SETREGSET)");
 	return ret;
+}
+
+/* A read operation fails */
+static void read_fails(pid_t child, const struct vec_type *type)
+{
+	struct user_sve_header *new_sve = NULL;
+	size_t new_sve_size = 0;
+	void *ret;
+
+	ret = get_sve(child, type, (void **)&new_sve, &new_sve_size);
+
+	ksft_test_result(ret == NULL, "%s unsupported read fails\n",
+			 type->name);
+
+	free(new_sve);
+}
+
+/* A write operation fails */
+static void write_fails(pid_t child, const struct vec_type *type)
+{
+	struct user_sve_header sve;
+	int ret;
+
+	/* Just the header, no data */
+	memset(&sve, 0, sizeof(sve));
+	sve.size = sizeof(sve);
+	sve.flags = SVE_PT_REGS_SVE;
+	sve.vl = SVE_VL_MIN;
+	ret = set_sve(child, type, &sve);
+
+	ksft_test_result(ret != 0, "%s unsupported write fails\n",
+			 type->name);
 }
 
 /* Validate setting and getting the inherit flag */
@@ -284,6 +316,25 @@ static void check_u32(unsigned int vl, const char *reg,
 		       vl, reg, *in, *out);
 		(*errors)++;
 	}
+}
+
+/* Set out of range VLs */
+static void ptrace_set_vl_ranges(pid_t child, const struct vec_type *type)
+{
+	struct user_sve_header sve;
+	int ret;
+
+	memset(&sve, 0, sizeof(sve));
+	sve.flags = SVE_PT_REGS_SVE;
+	sve.size = sizeof(sve);
+
+	ret = set_sve(child, type, &sve);
+	ksft_test_result(ret != 0, "%s Set invalid VL 0\n", type->name);
+
+	sve.vl = SVE_VL_MAX + SVE_VQ_BYTES;
+	ret = set_sve(child, type, &sve);
+	ksft_test_result(ret != 0, "%s Set invalid VL %d\n", type->name,
+			 SVE_VL_MAX + SVE_VQ_BYTES);
 }
 
 /* Access the FPSIMD registers via the SVE regset */
@@ -699,6 +750,20 @@ static int do_parent(pid_t child)
 	}
 
 	for (i = 0; i < ARRAY_SIZE(vec_types); i++) {
+		/*
+		 * If the vector type isn't supported reads and writes
+		 * should fail.
+		 */
+		if (!(getauxval(vec_types[i].hwcap_type) & vec_types[i].hwcap)) {
+			read_fails(child, &vec_types[i]);
+			write_fails(child, &vec_types[i]);
+		} else {
+			ksft_test_result_skip("%s unsupported read fails\n",
+					      vec_types[i].name);
+			ksft_test_result_skip("%s unsupported write fails\n",
+					      vec_types[i].name);
+		}
+
 		/* FPSIMD via SVE regset */
 		if (getauxval(vec_types[i].hwcap_type) & vec_types[i].hwcap) {
 			ptrace_sve_fpsimd(child, &vec_types[i]);
@@ -717,6 +782,17 @@ static int do_parent(pid_t child)
 					      vec_types[i].name);
 			ksft_test_result_skip("%s SVE_PT_VL_INHERIT cleared\n",
 					      vec_types[i].name);
+		}
+
+		/* Setting out of bounds VLs should fail */
+		if (getauxval(vec_types[i].hwcap_type) & vec_types[i].hwcap) {
+			ptrace_set_vl_ranges(child, &vec_types[i]);
+		} else {
+			ksft_test_result_skip("%s Set invalid VL 0\n",
+					      vec_types[i].name);
+			ksft_test_result_skip("%s Set invalid VL %d\n",
+					      vec_types[i].name,
+					      SVE_VL_MAX + SVE_VQ_BYTES);
 		}
 
 		/* Step through every possible VQ */

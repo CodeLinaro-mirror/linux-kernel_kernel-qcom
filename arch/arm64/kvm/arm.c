@@ -2118,8 +2118,10 @@ static void cpu_hyp_init_features(void)
 {
 	cpu_set_hyp_vector();
 
-	if (is_kernel_in_hyp_mode())
+	if (is_kernel_in_hyp_mode()) {
 		kvm_timer_init_vhe();
+		kvm_debug_init_vhe();
+	}
 
 	if (vgic_present)
 		kvm_vgic_init_cpu_hardware();
@@ -2320,8 +2322,9 @@ static int __init init_subsystems(void)
 	}
 
 	if (kvm_mode == KVM_MODE_NV &&
-	   !(vgic_present && kvm_vgic_global_state.type == VGIC_V3)) {
-		kvm_err("NV support requires GICv3, giving up\n");
+		!(vgic_present && (kvm_vgic_global_state.type == VGIC_V3 ||
+				   kvm_vgic_global_state.has_gcie_v3_compat))) {
+		kvm_err("NV support requires GICv3 or GICv5 with legacy support, giving up\n");
 		err = -EINVAL;
 		goto out;
 	}

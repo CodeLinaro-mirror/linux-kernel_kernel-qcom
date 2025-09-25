@@ -62,7 +62,7 @@ int blk_get_meta_cap(struct block_device *bdev, unsigned int cmd,
 	struct logical_block_metadata_cap meta_cap = {};
 	size_t usize = _IOC_SIZE(cmd);
 
-	if (extensible_ioctl_valid(cmd, FS_IOC_GETLBMD_CAP, LBMD_SIZE_VER0))
+	if (!extensible_ioctl_valid(cmd, FS_IOC_GETLBMD_CAP, LBMD_SIZE_VER0))
 		return -ENOIOCTLCMD;
 
 	bi = blk_get_integrity(bdev->bd_disk);

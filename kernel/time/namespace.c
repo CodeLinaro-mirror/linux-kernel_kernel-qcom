@@ -97,7 +97,7 @@ static struct time_namespace *clone_time_ns(struct user_namespace *user_ns,
 	if (!ns->vvar_page)
 		goto fail_free;
 
-	err = ns_common_init(&ns->ns, &timens_operations, true);
+	err = ns_common_init(ns, &timens_operations);
 	if (err)
 		goto fail_free_page;
 
@@ -255,7 +255,7 @@ void free_time_ns(struct time_namespace *ns)
 	ns_tree_remove(ns);
 	dec_time_namespaces(ns->ucounts);
 	put_user_ns(ns->user_ns);
-	ns_free_inum(&ns->ns);
+	ns_common_free(ns);
 	__free_page(ns->vvar_page);
 	/* Concurrent nstree traversal depends on a grace period. */
 	kfree_rcu(ns, ns.ns_rcu);
@@ -480,9 +480,9 @@ const struct proc_ns_operations timens_for_children_operations = {
 };
 
 struct time_namespace init_time_ns = {
-	.ns.count	= REFCOUNT_INIT(3),
+	.ns.__ns_ref	= REFCOUNT_INIT(3),
 	.user_ns	= &init_user_ns,
-	.ns.inum	= PROC_TIME_INIT_INO,
+	.ns.inum	= ns_init_inum(&init_time_ns),
 	.ns.ops		= &timens_operations,
 	.frozen_offsets	= true,
 };

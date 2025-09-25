@@ -103,7 +103,7 @@ static struct pid_namespace *create_pid_namespace(struct user_namespace *user_ns
 	if (ns->pid_cachep == NULL)
 		goto out_free_idr;
 
-	err = ns_common_init(&ns->ns, &pidns_operations, true);
+	err = ns_common_init(ns, &pidns_operations);
 	if (err)
 		goto out_free_idr;
 
@@ -127,7 +127,7 @@ static struct pid_namespace *create_pid_namespace(struct user_namespace *user_ns
 	return ns;
 
 out_free_inum:
-	ns_free_inum(&ns->ns);
+	ns_common_free(ns);
 out_free_idr:
 	idr_destroy(&ns->idr);
 	kmem_cache_free(pid_ns_cachep, ns);
@@ -152,7 +152,7 @@ static void destroy_pid_namespace(struct pid_namespace *ns)
 	ns_tree_remove(ns);
 	unregister_pidns_sysctls(ns);
 
-	ns_free_inum(&ns->ns);
+	ns_common_free(ns);
 
 	idr_destroy(&ns->idr);
 	call_rcu(&ns->rcu, delayed_free_pidns);
@@ -169,7 +169,7 @@ static void destroy_pid_namespace_work(struct work_struct *work)
 		parent = ns->parent;
 		destroy_pid_namespace(ns);
 		ns = parent;
-	} while (ns != &init_pid_ns && refcount_dec_and_test(&ns->ns.count));
+	} while (ns != &init_pid_ns && ns_ref_put(ns));
 }
 
 struct pid_namespace *copy_pid_ns(unsigned long flags,
@@ -184,7 +184,7 @@ struct pid_namespace *copy_pid_ns(unsigned long flags,
 
 void put_pid_ns(struct pid_namespace *ns)
 {
-	if (ns && ns != &init_pid_ns && refcount_dec_and_test(&ns->ns.count))
+	if (ns && ns != &init_pid_ns && ns_ref_put(ns))
 		schedule_work(&ns->work);
 }
 EXPORT_SYMBOL_GPL(put_pid_ns);

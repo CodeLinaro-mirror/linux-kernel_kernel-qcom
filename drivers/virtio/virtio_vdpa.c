@@ -466,8 +466,7 @@ static int virtio_vdpa_probe(struct vdpa_device *vdpa)
 	if (!vd_dev)
 		return -ENOMEM;
 
-	vd_dev->vdev.dev.parent = vdpa->map ? &vdpa->dev :
-				  vdpa_get_map(vdpa).dma_dev;
+	vd_dev->vdev.dev.parent = vdpa_get_map(vdpa).dma_dev;
 	vd_dev->vdev.dev.release = virtio_vdpa_release_dev;
 	vd_dev->vdev.config = &virtio_vdpa_config_ops;
 	vd_dev->vdev.map = vdpa->map;

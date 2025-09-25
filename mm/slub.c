@@ -2102,7 +2102,8 @@ int alloc_slab_obj_exts(struct slab *slab, struct kmem_cache *s,
 	if (unlikely(!allow_spin)) {
 		size_t sz = objects * sizeof(struct slabobj_ext);
 
-		vec = kmalloc_nolock(sz, __GFP_ZERO, slab_nid(slab));
+		vec = kmalloc_nolock(sz, __GFP_ZERO | __GFP_NO_OBJ_EXT,
+				     slab_nid(slab));
 	} else {
 		vec = kcalloc_node(objects, sizeof(struct slabobj_ext), gfp,
 				   slab_nid(slab));
@@ -4698,6 +4699,18 @@ retry_load_slab:
 
 	goto load_freelist;
 }
+/*
+ * We disallow kprobes in ___slab_alloc() to prevent reentrance
+ *
+ * kmalloc() -> ___slab_alloc() -> local_lock_cpu_slab() protected part of
+ * ___slab_alloc() manipulating c->freelist -> kprobe -> bpf ->
+ * kmalloc_nolock() or kfree_nolock() -> __update_cpu_freelist_fast()
+ * manipulating c->freelist without lock.
+ *
+ * This does not prevent kprobe in functions called from ___slab_alloc() such as
+ * local_lock_irqsave() itself, and that is fine, we only need to protect the
+ * c->freelist manipulation in ___slab_alloc() itself.
+ */
 NOKPROBE_SYMBOL(___slab_alloc);
 
 /*
@@ -5605,7 +5618,8 @@ EXPORT_SYMBOL(__kmalloc_noprof);
 /**
  * kmalloc_nolock - Allocate an object of given size from any context.
  * @size: size to allocate
- * @gfp_flags: GFP flags. Only __GFP_ACCOUNT, __GFP_ZERO allowed.
+ * @gfp_flags: GFP flags. Only __GFP_ACCOUNT, __GFP_ZERO, __GFP_NO_OBJ_EXT
+ * allowed.
  * @node: node number of the target node.
  *
  * Return: pointer to the new object or NULL in case of error.
@@ -5619,7 +5633,8 @@ void *kmalloc_nolock_noprof(size_t size, gfp_t gfp_flags, int node)
 	bool can_retry = true;
 	void *ret = ERR_PTR(-EBUSY);
 
-	VM_WARN_ON_ONCE(gfp_flags & ~(__GFP_ACCOUNT | __GFP_ZERO));
+	VM_WARN_ON_ONCE(gfp_flags & ~(__GFP_ACCOUNT | __GFP_ZERO |
+				      __GFP_NO_OBJ_EXT));
 
 	if (unlikely(!size))
 		return ZERO_SIZE_PTR;

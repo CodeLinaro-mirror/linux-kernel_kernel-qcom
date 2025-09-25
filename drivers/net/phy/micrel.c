@@ -107,6 +107,7 @@
 #define LAN8814_INTC				0x18
 #define LAN8814_INTS				0x1B
 
+#define LAN8814_INT_FLF				BIT(15)
 #define LAN8814_INT_LINK_DOWN			BIT(2)
 #define LAN8814_INT_LINK_UP			BIT(0)
 #define LAN8814_INT_LINK			(LAN8814_INT_LINK_UP |\
@@ -2806,6 +2807,14 @@ static int ksz886x_cable_test_get_status(struct phy_device *phydev,
 }
 
 /**
+ * LAN8814_PAGE_PCS - Selects Extended Page 0.
+ *
+ * This page contains timers used for auto-negotiation, debug registers and
+ * register to configure fast link failure.
+ */
+#define LAN8814_PAGE_PCS 0
+
+/**
  * LAN8814_PAGE_AFE_PMA - Selects Extended Page 1.
  *
  * This page appears to control the Analog Front-End (AFE) and Physical
@@ -4295,8 +4304,8 @@ static int __lan8814_ptp_probe_once(struct phy_device *phydev, char *pin_name,
 	shared->ptp_clock = ptp_clock_register(&shared->ptp_clock_info,
 					       &phydev->mdio.dev);
 	if (IS_ERR(shared->ptp_clock)) {
-		phydev_err(phydev, "ptp_clock_register failed %lu\n",
-			   PTR_ERR(shared->ptp_clock));
+		phydev_err(phydev, "ptp_clock_register failed %pe\n",
+			   shared->ptp_clock);
 		return -EINVAL;
 	}
 
@@ -5729,8 +5738,8 @@ static int lan8841_probe(struct phy_device *phydev)
 	ptp_priv->ptp_clock = ptp_clock_register(&ptp_priv->ptp_clock_info,
 						 &phydev->mdio.dev);
 	if (IS_ERR(ptp_priv->ptp_clock)) {
-		phydev_err(phydev, "ptp_clock_register failed: %lu\n",
-			   PTR_ERR(ptp_priv->ptp_clock));
+		phydev_err(phydev, "ptp_clock_register failed: %pe\n",
+			   ptp_priv->ptp_clock);
 		return -EINVAL;
 	}
 
@@ -5910,7 +5919,8 @@ static int lan8842_config_intr(struct phy_device *phydev)
 		if (err)
 			return err;
 
-		err = phy_write(phydev, LAN8814_INTC, LAN8814_INT_LINK);
+		err = phy_write(phydev, LAN8814_INTC,
+				LAN8814_INT_LINK | LAN8814_INT_FLF);
 	} else {
 		err = phy_write(phydev, LAN8814_INTC, 0);
 		if (err)
@@ -5986,7 +5996,7 @@ static irqreturn_t lan8842_handle_interrupt(struct phy_device *phydev)
 		return IRQ_NONE;
 	}
 
-	if (irq_status & LAN8814_INT_LINK) {
+	if (irq_status & (LAN8814_INT_LINK | LAN8814_INT_FLF)) {
 		phy_trigger_machine(phydev);
 		ret = IRQ_HANDLED;
 	}
@@ -6053,6 +6063,69 @@ static int lan8842_update_stats(struct phy_device *phydev)
 						     tx_errors_regs);
 
 	return 0;
+}
+
+#define LAN8842_FLF				15 /* 0x0e */
+#define LAN8842_FLF_ENA				BIT(1)
+#define LAN8842_FLF_ENA_LINK_DOWN		BIT(0)
+
+static int lan8842_get_fast_down(struct phy_device *phydev, u8 *msecs)
+{
+	int ret;
+
+	ret = lanphy_read_page_reg(phydev, LAN8814_PAGE_PCS, LAN8842_FLF);
+	if (ret < 0)
+		return ret;
+
+	if (ret & LAN8842_FLF_ENA)
+		*msecs = ETHTOOL_PHY_FAST_LINK_DOWN_ON;
+	else
+		*msecs = ETHTOOL_PHY_FAST_LINK_DOWN_OFF;
+
+	return 0;
+}
+
+static int lan8842_set_fast_down(struct phy_device *phydev, const u8 *msecs)
+{
+	u16 flf;
+
+	switch (*msecs) {
+	case ETHTOOL_PHY_FAST_LINK_DOWN_OFF:
+		flf = 0;
+		break;
+	case ETHTOOL_PHY_FAST_LINK_DOWN_ON:
+		flf = LAN8842_FLF_ENA | LAN8842_FLF_ENA_LINK_DOWN;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return lanphy_modify_page_reg(phydev, LAN8814_PAGE_PCS,
+				      LAN8842_FLF,
+				      LAN8842_FLF_ENA |
+				      LAN8842_FLF_ENA_LINK_DOWN, flf);
+}
+
+static int lan8842_get_tunable(struct phy_device *phydev,
+			       struct ethtool_tunable *tuna, void *data)
+{
+	switch (tuna->id) {
+	case ETHTOOL_PHY_FAST_LINK_DOWN:
+		return lan8842_get_fast_down(phydev, data);
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static int lan8842_set_tunable(struct phy_device *phydev,
+			       struct ethtool_tunable *tuna, const void *data)
+{
+	switch (tuna->id) {
+	case ETHTOOL_PHY_FAST_LINK_DOWN:
+		return lan8842_set_fast_down(phydev, data);
+	default:
+		return -EOPNOTSUPP;
+	}
 }
 
 static void lan8842_get_phy_stats(struct phy_device *phydev,
@@ -6299,6 +6372,8 @@ static struct phy_driver ksphy_driver[] = {
 	.handle_interrupt = lan8842_handle_interrupt,
 	.get_phy_stats	= lan8842_get_phy_stats,
 	.update_stats	= lan8842_update_stats,
+	.get_tunable	= lan8842_get_tunable,
+	.set_tunable	= lan8842_set_tunable,
 	.cable_test_start	= lan8814_cable_test_start,
 	.cable_test_get_status	= ksz886x_cable_test_get_status,
 }, {

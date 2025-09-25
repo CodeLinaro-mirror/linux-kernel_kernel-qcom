@@ -460,7 +460,13 @@ void fw_core_handle_bus_reset(struct fw_card *card, int node_id, int generation,
 {
 	struct fw_node *local_node;
 
+	might_sleep();
+
 	trace_bus_reset_handle(card->index, generation, node_id, bm_abdicate, self_ids, self_id_count);
+
+	// Disable bus management work during updating the cache of bus topology, since the work
+	// accesses to some members of fw_card.
+	disable_delayed_work_sync(&card->bm_work);
 
 	scoped_guard(spinlock, &card->lock) {
 		// If the selfID buffer is not the immediate successor of the
@@ -479,7 +485,6 @@ void fw_core_handle_bus_reset(struct fw_card *card, int node_id, int generation,
 		card->reset_jiffies = get_jiffies_64();
 		card->bm_node_id  = 0xffff;
 		card->bm_abdicate = bm_abdicate;
-		fw_schedule_bm_work(card, 0);
 
 		local_node = build_tree(card, self_ids, self_id_count, generation);
 
@@ -495,6 +500,10 @@ void fw_core_handle_bus_reset(struct fw_card *card, int node_id, int generation,
 			update_tree(card, local_node);
 		}
 	}
+
+	enable_delayed_work(&card->bm_work);
+
+	fw_schedule_bm_work(card, 0);
 
 	// Just used by transaction layer.
 	scoped_guard(spinlock, &card->topology_map.lock) {

@@ -50,12 +50,9 @@ Swap cache lookup within the cluster can be a very simple array lookup.
 
 We give such a per-cluster swap cache value array a name: the swap table.
 
-Each swap cluster contains 512 entries, so a swap table stores one cluster
-worth of swap cache values, which is exactly one page. This is not
-coincidental because the cluster size is determined by the huge page size.
-The swap table is holding an array of pointers. The pointer has the same
-size as the PTE. The size of the swap table should match to the second
-last level of the page table page, exactly one page.
+A swap table is an array of pointers. Each pointer is the same size as a
+PTE. The size of a swap table for one swap cluster typically matches a PTE
+page table, which is one page on modern 64-bit systems.
 
 With swap table, swap cache lookup can achieve great locality, simpler,
 and faster.

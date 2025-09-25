@@ -332,8 +332,10 @@ static ssize_t tpm_show_ppi_tcg_operations(struct device *dev,
 	spin_lock(&tpm_ppi_lock);
 	if (!ppi_cache_populated) {
 		len = cache_ppi_operations(chip->acpi_dev_handle, buf);
-		if (len < 0)
+		if (len < 0) {
+			spin_unlock(&tpm_ppi_lock);
 			return len;
+		}
 
 		ppi_cache_populated = true;
 	}
@@ -361,8 +363,10 @@ static ssize_t tpm_show_ppi_vs_operations(struct device *dev,
 	spin_lock(&tpm_ppi_lock);
 	if (!ppi_cache_populated) {
 		len = cache_ppi_operations(chip->acpi_dev_handle, buf);
-		if (len < 0)
+		if (len < 0) {
+			spin_unlock(&tpm_ppi_lock);
 			return len;
+		}
 
 		ppi_cache_populated = true;
 	}

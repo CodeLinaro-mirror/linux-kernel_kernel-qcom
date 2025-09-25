@@ -487,8 +487,8 @@ skip_switch:
 	return switched;
 }
 
-static void process_inode_switch_wbs_work(struct bdi_writeback *new_wb,
-					  struct inode_switch_wbs_context *isw)
+static void process_inode_switch_wbs(struct bdi_writeback *new_wb,
+				     struct inode_switch_wbs_context *isw)
 {
 	struct backing_dev_info *bdi = inode_to_bdi(isw->inodes[0]);
 	struct bdi_writeback *old_wb = isw->inodes[0]->i_wb;
@@ -566,10 +566,8 @@ void inode_switch_wbs_work_fn(struct work_struct *work)
 	while (1) {
 		list = llist_del_all(&new_wb->switch_wbs_ctxs);
 		/* Nothing to do? */
-		if (!list) {
-			wb_put(new_wb);
-			return;
-		}
+		if (!list)
+			break;
 		/*
 		 * In addition to synchronizing among switchers, I_WB_SWITCH
 		 * tells the RCU protected stat update paths to grab the i_page
@@ -580,8 +578,9 @@ void inode_switch_wbs_work_fn(struct work_struct *work)
 		synchronize_rcu();
 
 		llist_for_each_entry_safe(isw, next_isw, list, list)
-			process_inode_switch_wbs_work(new_wb, isw);
+			process_inode_switch_wbs(new_wb, isw);
 	}
+	wb_put(new_wb);
 }
 
 static bool inode_prepare_wbs_switch(struct inode *inode,
@@ -1220,7 +1219,7 @@ void cgroup_writeback_umount(struct super_block *sb)
 
 static int __init cgroup_writeback_init(void)
 {
-	isw_wq = alloc_workqueue("inode_switch_wbs", 0, 0);
+	isw_wq = alloc_workqueue("inode_switch_wbs", WQ_PERCPU, 0);
 	if (!isw_wq)
 		return -ENOMEM;
 	return 0;
@@ -2482,7 +2481,7 @@ static int dirtytime_interval_handler(const struct ctl_table *table, int write,
 
 	ret = proc_dointvec_minmax(table, write, buffer, lenp, ppos);
 	if (ret == 0 && write)
-		mod_delayed_work(system_wq, &dirtytime_work, 0);
+		mod_delayed_work(system_percpu_wq, &dirtytime_work, 0);
 	return ret;
 }
 

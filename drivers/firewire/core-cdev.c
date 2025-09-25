@@ -41,7 +41,7 @@
 /*
  * ABI version history is documented in linux/firewire-cdev.h.
  */
-#define FW_CDEV_KERNEL_VERSION			5
+#define FW_CDEV_KERNEL_VERSION			6
 #define FW_CDEV_VERSION_EVENT_REQUEST2		4
 #define FW_CDEV_VERSION_ALLOCATE_REGION_END	4
 #define FW_CDEV_VERSION_AUTO_FLUSH_ISO_OVERFLOW	5
@@ -940,11 +940,12 @@ static int ioctl_add_descriptor(struct client *client, union ioctl_arg *arg)
 	if (a->length > 256)
 		return -EINVAL;
 
-	r = kmalloc(sizeof(*r) + a->length * 4, GFP_KERNEL);
+	r = kmalloc(struct_size(r, data, a->length), GFP_KERNEL);
 	if (r == NULL)
 		return -ENOMEM;
 
-	if (copy_from_user(r->data, u64_to_uptr(a->data), a->length * 4)) {
+	if (copy_from_user(r->data, u64_to_uptr(a->data),
+			   flex_array_size(r, data, a->length))) {
 		ret = -EFAULT;
 		goto failed;
 	}

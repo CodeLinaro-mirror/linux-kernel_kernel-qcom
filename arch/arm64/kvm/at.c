@@ -98,22 +98,26 @@ static enum trans_regime compute_translation_regime(struct kvm_vcpu *vcpu, u32 o
 	}
 }
 
+static u64 effective_tcr2(struct kvm_vcpu *vcpu, enum trans_regime regime)
+{
+	if (regime == TR_EL10) {
+		if (vcpu_has_nv(vcpu) &&
+		    !(__vcpu_sys_reg(vcpu, HCRX_EL2) & HCRX_EL2_TCR2En))
+			return 0;
+
+		return vcpu_read_sys_reg(vcpu, TCR2_EL1);
+	}
+
+	return vcpu_read_sys_reg(vcpu, TCR2_EL2);
+}
+
 static bool s1pie_enabled(struct kvm_vcpu *vcpu, enum trans_regime regime)
 {
 	if (!kvm_has_s1pie(vcpu->kvm))
 		return false;
 
-	switch (regime) {
-	case TR_EL2:
-	case TR_EL20:
-		return vcpu_read_sys_reg(vcpu, TCR2_EL2) & TCR2_EL2_PIE;
-	case TR_EL10:
-		return ((!vcpu_has_nv(vcpu) ||
-			 (__vcpu_sys_reg(vcpu, HCRX_EL2) & HCRX_EL2_TCR2En)) &&
-			(vcpu_read_sys_reg(vcpu, TCR2_EL1) & TCR2_EL1_PIE));
-	default:
-		BUG();
-	}
+	/* Abuse TCR2_EL1_PIE and use it for EL2 as well */
+	return effective_tcr2(vcpu, regime) & TCR2_EL1_PIE;
 }
 
 static void compute_s1poe(struct kvm_vcpu *vcpu, struct s1_walk_info *wi)
@@ -125,24 +129,11 @@ static void compute_s1poe(struct kvm_vcpu *vcpu, struct s1_walk_info *wi)
 		return;
 	}
 
-	switch (wi->regime) {
-	case TR_EL2:
-	case TR_EL20:
-		val = vcpu_read_sys_reg(vcpu, TCR2_EL2);
-		wi->poe = val & TCR2_EL2_POE;
-		wi->e0poe = (wi->regime == TR_EL20) && (val & TCR2_EL2_E0POE);
-		break;
-	case TR_EL10:
-		if (vcpu_has_nv(vcpu) &&
-		    !(__vcpu_sys_reg(vcpu, HCRX_EL2) & HCRX_EL2_TCR2En)) {
-			wi->poe = wi->e0poe = false;
-			return;
-		}
+	val = effective_tcr2(vcpu, wi->regime);
 
-		val = vcpu_read_sys_reg(vcpu, TCR2_EL1);
-		wi->poe = val & TCR2_EL1_POE;
-		wi->e0poe = val & TCR2_EL1_E0POE;
-	}
+	/* Abuse TCR2_EL1_* for EL2 */
+	wi->poe = val & TCR2_EL1_POE;
+	wi->e0poe = (wi->regime != TR_EL2) && (val & TCR2_EL1_E0POE);
 }
 
 static int setup_s1_walk(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
@@ -749,7 +740,7 @@ static u8 compute_s1_sh(struct s1_walk_info *wi, struct s1_walk_result *wr,
 	 * conveniently recorded in the walk info.
 	 */
 	if (!wi->pa52bit || BIT(wi->pgshift) == SZ_64K)
-		sh = FIELD_GET(PTE_SHARED, wr->desc);
+		sh = FIELD_GET(KVM_PTE_LEAF_ATTR_LO_S1_SH, wr->desc);
 	else
 		sh = wi->sh;
 
@@ -842,7 +833,7 @@ static u64 compute_par_s12(struct kvm_vcpu *vcpu, u64 s1_par,
 	    !MEMATTR_IS_DEVICE(final_attr))
 		final_attr = MEMATTR(NC, NC);
 
-	s2_sh = FIELD_GET(PTE_SHARED, tr->desc);
+	s2_sh = FIELD_GET(KVM_PTE_LEAF_ATTR_LO_S2_SH, tr->desc);
 
 	par  = FIELD_PREP(SYS_PAR_EL1_ATTR, final_attr);
 	par |= tr->output & GENMASK(47, 12);
@@ -867,7 +858,7 @@ static u64 compute_par_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 	} else if (wr->level == S1_MMU_DISABLED) {
 		/* MMU off or HCR_EL2.DC == 1 */
 		par  = SYS_PAR_EL1_NSE;
-		par |= wr->pa & GENMASK_ULL(52, 12);
+		par |= wr->pa & SYS_PAR_EL1_PA;
 
 		if (wi->regime == TR_EL10 && vcpu_has_nv(vcpu) &&
 		    (__vcpu_sys_reg(vcpu, HCR_EL2) & HCR_DC)) {
@@ -900,7 +891,7 @@ static u64 compute_par_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 			mair = MEMATTR(NC, NC);
 
 		par |= FIELD_PREP(SYS_PAR_EL1_ATTR, mair);
-		par |= wr->pa & GENMASK_ULL(52, 12);
+		par |= wr->pa & SYS_PAR_EL1_PA;
 
 		sh = compute_s1_sh(wi, wr, mair);
 		par |= FIELD_PREP(SYS_PAR_EL1_SH, sh);
@@ -1590,7 +1581,7 @@ static int match_s1_desc(struct s1_walk_context *ctxt, void *priv)
 	u64 ipa = dm->ipa;
 
 	/* Use S1 granule alignment */
-	ipa &= GENMASK(52, ctxt->wi->pgshift);
+	ipa &= GENMASK(51, ctxt->wi->pgshift);
 
 	/* Not the IPA we're looking for? Continue. */
 	if (ipa != ctxt->table_ipa)

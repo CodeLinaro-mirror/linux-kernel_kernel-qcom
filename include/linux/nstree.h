@@ -86,4 +86,6 @@ static inline void __ns_tree_add(struct ns_common *ns, struct ns_tree *ns_tree)
 #define ns_tree_adjoined_rcu(__ns, __previous) \
 	__ns_tree_adjoined_rcu(to_ns_common(__ns), to_ns_tree(__ns), __previous)
 
+#define ns_tree_active(__ns) (!RB_EMPTY_NODE(&to_ns_common(__ns)->ns_tree_node))
+
 #endif /* _LINUX_NSTREE_H */

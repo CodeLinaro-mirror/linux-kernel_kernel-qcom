@@ -354,7 +354,11 @@ static void smu_v13_0_12_init_caps(struct smu_context *smu)
 	}
 
 	if (fw_ver >= 0x04560700) {
-		if (!amdgpu_sriov_vf(smu->adev))
+		if (fw_ver >= 0x04560900) {
+			smu_v13_0_6_cap_set(smu, SMU_CAP(TEMP_METRICS));
+			if (smu->adev->gmc.xgmi.physical_node_id == 0)
+				smu_v13_0_6_cap_set(smu, SMU_CAP(NPM_METRICS));
+		} else if (!amdgpu_sriov_vf(smu->adev))
 			smu_v13_0_6_cap_set(smu, SMU_CAP(TEMP_METRICS));
 	} else {
 		smu_v13_0_12_tables_fini(smu);
@@ -1799,6 +1803,15 @@ static int smu_v13_0_6_read_sensor(struct smu_context *smu,
 			ret = -EOPNOTSUPP;
 			break;
 		}
+	case AMDGPU_PP_SENSOR_NODEPOWERLIMIT:
+	case AMDGPU_PP_SENSOR_NODEPOWER:
+	case AMDGPU_PP_SENSOR_GPPTRESIDENCY:
+	case AMDGPU_PP_SENSOR_MAXNODEPOWERLIMIT:
+		ret = smu_v13_0_12_get_npm_data(smu, sensor, (uint32_t *)data);
+		if (ret)
+			return ret;
+		*size = 4;
+		break;
 	case AMDGPU_PP_SENSOR_GPU_AVG_POWER:
 	default:
 		ret = -EOPNOTSUPP;

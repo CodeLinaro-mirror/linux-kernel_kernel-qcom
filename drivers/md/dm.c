@@ -944,6 +944,7 @@ static void __dm_io_complete(struct dm_io *io, bool first_stage)
 	struct mapped_device *md = io->md;
 	blk_status_t io_error;
 	bool requeued;
+	bool requeue_flush_with_data;
 
 	requeued = dm_handle_requeue(io, first_stage);
 	if (requeued && first_stage)
@@ -960,6 +961,7 @@ static void __dm_io_complete(struct dm_io *io, bool first_stage)
 		__dm_start_io_acct(io);
 		dm_end_io_acct(io);
 	}
+	requeue_flush_with_data = io->requeue_flush_with_data;
 	free_io(io);
 	smp_wmb();
 	this_cpu_dec(*md->pending_io);
@@ -972,7 +974,7 @@ static void __dm_io_complete(struct dm_io *io, bool first_stage)
 	if (requeued)
 		return;
 
-	if (unlikely(io->requeue_flush_with_data)) {
+	if (unlikely(requeue_flush_with_data)) {
 		/*
 		 * Preflush done for flush with data, reissue
 		 * without REQ_PREFLUSH.
