@@ -1030,7 +1030,22 @@
 				 <0>,
 				 <0>,
 				 <0>,
-				 <&pcie5_phy>;
+				 <&pcie5_phy>,
+				 <0>,
+				 <0>,
+				 <0>,
+				 <0>,
+				 <0>,
+				 <0>,
+				 <0>,
+				 <0>,
+				 <0>,
+				 <0>,
+				 <&usb_1_ss0_qmpphy QMP_USB43DP_USB3_PIPE_CLK>,
+				 <&usb_1_ss1_qmpphy QMP_USB43DP_USB3_PIPE_CLK>,
+				 <&usb_1_ss2_qmpphy QMP_USB43DP_USB3_PIPE_CLK>,
+				 <&usb_mp_qmpphy0 QMP_USB43DP_USB3_PIPE_CLK>,
+				 <&usb_mp_qmpphy1 QMP_USB43DP_USB3_PIPE_CLK>;
 			#clock-cells = <1>;
 			#reset-cells = <1>;
 			#power-domain-cells = <1>;
@@ -2691,7 +2706,7 @@
 					reg = <1>;
 
 					usb_1_ss0_qmpphy_usb_ss_in: endpoint {
-						remote-endpoint = <&usb_1_ss0>;
+						remote-endpoint = <&usb_0_dwc3_ss>;
 					};
 				};
 
@@ -2759,7 +2774,7 @@
 					reg = <1>;
 
 					usb_1_ss1_qmpphy_usb_ss_in: endpoint {
-						remote-endpoint = <&usb1_ss1>;
+						remote-endpoint = <&usb_1_dwc3_ss>;
 					};
 				};
 
@@ -3241,7 +3256,7 @@
 					reg = <1>;
 
 					usb_1_ss2_qmpphy_usb_ss_in: endpoint {
-						remote-endpoint = <&usb1_ss2>;
+						remote-endpoint = <&usb_2_dwc3_ss>;
 					};
 				};
 
