@@ -35,17 +35,16 @@
 	};
 #endif
 
-#ifdef PMH0110_F_E0_SID
-	pmh0110_f_e0: pmic@PMH0110_F_E0_SID {
+	pmh0110_f_e0: pmic@5 {
 		compatible = "qcom,pmh0110", "qcom,spmi-pmic";
-		reg = <PMH0110_F_E0_SID SPMI_USID>;
+		reg = <0x5 SPMI_USID>;
 		#address-cells = <1>;
 		#size-cells = <0>;
 
 		pmh0110_f_e0_temp_alarm: temp-alarm@a00 {
 			compatible = "qcom,spmi-temp-alarm";
 			reg = <0xa00>;
-			interrupts = <PMH0110_F_E0_SID 0xa 0x0 IRQ_TYPE_EDGE_BOTH>;
+			interrupts = <0x5 0xa 0x0 IRQ_TYPE_EDGE_BOTH>;
 			#thermal-sensor-cells = <0>;
 		};
 
@@ -59,7 +58,6 @@
 			#interrupt-cells = <2>;
 		};
 	};
-#endif
 
 #ifdef PMH0110_G_E0_SID
 	pmh0110_g_e0: pmic@PMH0110_G_E0_SID {
@@ -144,10 +142,9 @@
 };
 
 &spmi_bus1 {
-#ifdef PMH0110_F_E1_SID
-	pmh0110_f_e1: pmic@PMH0110_F_E1_SID {
+	pmh0110_f_e1: pmic@5 {
 		compatible = "qcom,pmh0110", "qcom,spmi-pmic";
-		reg = <PMH0110_F_E1_SID SPMI_USID>;
+		reg = <0x5 SPMI_USID>;
 		#address-cells = <1>;
 		#size-cells = <0>;
 		status = "disabled";
@@ -155,7 +152,7 @@
 		pmh0110_f_e1_temp_alarm: temp-alarm@a00 {
 			compatible = "qcom,spmi-temp-alarm";
 			reg = <0xa00>;
-			interrupts = <PMH0110_F_E1_SID 0xa 0x0 IRQ_TYPE_EDGE_BOTH>;
+			interrupts = <0x5 0xa 0x0 IRQ_TYPE_EDGE_BOTH>;
 			#thermal-sensor-cells = <0>;
 		};
 
@@ -169,5 +166,4 @@
 			#interrupt-cells = <2>;
 		};
 	};
-#endif
 };
