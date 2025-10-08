@@ -1029,6 +1029,7 @@
 				 <0>,
 				 <0>,
 				 <0>,
+				 <0>,
 				 <&pcie5_phy>;
 			#clock-cells = <1>;
 			#reset-cells = <1>;
