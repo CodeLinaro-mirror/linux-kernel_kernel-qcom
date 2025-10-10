@@ -92,8 +92,7 @@
 	};
 
 	pmic-glink {
-		compatible = "qcom,sm8550-pmic-glink",
-			     "qcom,pmic-glink";
+		compatible = "qcom,glymur-pmic-glink";
 		#address-cells = <1>;
 		#size-cells = <0>;
 
