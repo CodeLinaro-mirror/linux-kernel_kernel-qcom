@@ -7,6 +7,8 @@
 
 #include "glymur.dtsi"
 #include "glymur-pmics.dtsi"
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/gpio-keys.h>
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 #include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
 
@@ -68,7 +70,7 @@
 	gpio-keys {
 		compatible = "gpio-keys";
 
-		pinctrl-0 = <&key_vol_up_default>;
+		pinctrl-0 = <&key_vol_up_default>, <&hall_int_n_default>;
 		pinctrl-names = "default";
 
 		key-volume-up {
@@ -78,6 +80,14 @@
 			debounce-interval = <15>;
 			linux,can-disable;
 			wakeup-source;
+		};
+
+		switch-lid {
+			gpios = <&tlmm 92 GPIO_ACTIVE_LOW>;
+			linux,input-type = <EV_SW>;
+			linux,code = <SW_LID>;
+			wakeup-source;
+			wakeup-event-action = <EV_ACT_DEASSERTED>;
 		};
 	};
 
@@ -354,6 +364,12 @@
 		pins = "gpio70";
 		function = "gpio";
 		drive-strength = <16>;
+		bias-disable;
+	};
+
+	hall_int_n_default: hall-int-n-state {
+		pins = "gpio92";
+		function = "gpio";
 		bias-disable;
 	};
 
