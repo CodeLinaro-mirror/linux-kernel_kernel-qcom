@@ -99,6 +99,7 @@ properties:
           - qcom,pmx75
           - qcom,smb2351
           - qcom,smb2360
+          - qcom,smb2370
       - const: qcom,spmi-pmic
 
   reg:
