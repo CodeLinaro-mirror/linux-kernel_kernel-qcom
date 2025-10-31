@@ -6287,6 +6287,8 @@
 				    "llcc11_base";
 
 			interrupts = <GIC_SPI 266 IRQ_TYPE_LEVEL_HIGH>;
+
+			status = "disabled";
 		};
 
 		nsi_noc: interconnect@1d600000 {
