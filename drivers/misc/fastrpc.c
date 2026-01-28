@@ -2330,6 +2330,12 @@ static const struct fastrpc_soc_data kaanapali_soc_data = {
 	.dma_addr_bits_default = 32,
 };
 
+static const struct fastrpc_soc_data glymur_soc_data = {
+	.sid_pos = 56,
+	.dma_addr_bits_cdsp = 34,
+	.dma_addr_bits_default = 32,
+};
+
 static const struct fastrpc_soc_data default_soc_data = {
 	.sid_pos = 32,
 	.dma_addr_bits_cdsp = 32,
@@ -2538,6 +2544,7 @@ static int fastrpc_rpmsg_callback(struct rpmsg_device *rpdev, void *data,
 
 static const struct of_device_id fastrpc_rpmsg_of_match[] = {
 	{ .compatible = "qcom,kaanapali-fastrpc", .data = &kaanapali_soc_data },
+	{ .compatible = "qcom,glymur-fastrpc", .data = &glymur_soc_data },
 	{ .compatible = "qcom,fastrpc", .data = &default_soc_data },
 	{ },
 };
