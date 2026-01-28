@@ -20,6 +20,7 @@ properties:
   compatible:
     enum:
       - qcom,kaanapali-fastrpc
+      - qcom,glymur-fastrpc
       - qcom,fastrpc
 
   label:
