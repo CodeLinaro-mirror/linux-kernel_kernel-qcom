@@ -3450,7 +3450,7 @@
 				qcom,remote-pid = <2>;
 
 				fastrpc {
-					compatible = "qcom,fastrpc";
+					compatible = "qcom,glymur-fastrpc";
 					qcom,glink-channels = "fastrpcglink-apps-dsp";
 					label = "adsp";
 					qcom,non-secure-domain;
@@ -6423,7 +6423,7 @@
 				qcom,remote-pid = <5>;
 
 				fastrpc {
-					compatible = "qcom,fastrpc";
+					compatible = "qcom,glymur-fastrpc";
 					qcom,glink-channels = "fastrpcglink-apps-dsp";
 					label = "cdsp";
 					qcom,non-secure-domain;
