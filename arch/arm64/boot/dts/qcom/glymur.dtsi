@@ -3703,12 +3703,14 @@
 					opp-hz = /bits/ 64 <310000000>;
 					opp-level = <RPMH_REGULATOR_LEVEL_LOW_SVS_D1>;
 					opp-peak-kBps = <2136718>;
+					opp-supported-hw = <0xf>;
 				};
 
 				opp-410000000 {
 					opp-hz = /bits/ 64 <410000000>;
 					opp-level = <RPMH_REGULATOR_LEVEL_LOW_SVS>;
 					opp-peak-kBps = <2136718>;
+					opp-supported-hw = <0xf>;
 				};
 
 				opp-572000000 {
@@ -3716,6 +3718,7 @@
 					opp-level = <RPMH_REGULATOR_LEVEL_SVS>;
 					opp-peak-kBps = <2136718>;
 					qcom,opp-acd-level = <0xe02d5ffd>;
+					opp-supported-hw = <0xf>;
 				};
 
 				opp-760000000 {
@@ -3723,6 +3726,7 @@
 					opp-level = <RPMH_REGULATOR_LEVEL_SVS_L1>;
 					opp-peak-kBps = <2136718>;
 					qcom,opp-acd-level = <0xc0285ffd>;
+					opp-supported-hw = <0xf>;
 				};
 
 				opp-820000000 {
@@ -3730,6 +3734,7 @@
 					opp-level = <RPMH_REGULATOR_LEVEL_SVS_L2>;
 					opp-peak-kBps = <2136718>;
 					qcom,opp-acd-level = <0xa82e5ffd>;
+					opp-supported-hw = <0xf>;
 				};
 
 				opp-915000000 {
@@ -3737,6 +3742,7 @@
 					opp-level = <RPMH_REGULATOR_LEVEL_NOM>;
 					opp-peak-kBps = <2136718>;
 					qcom,opp-acd-level = <0x882d5ffd>;
+					opp-supported-hw = <0xf>;
 				};
 
 				opp-1070000000 {
@@ -3744,6 +3750,7 @@
 					opp-level = <RPMH_REGULATOR_LEVEL_NOM_L1>;
 					opp-peak-kBps = <2136718>;
 					qcom,opp-acd-level = <0x882b5ffd>;
+					opp-supported-hw = <0xf>;
 				};
 
 				opp-1185000000 {
@@ -3751,6 +3758,7 @@
 					opp-level = <RPMH_REGULATOR_LEVEL_TURBO>;
 					opp-peak-kBps = <2136718>;
 					qcom,opp-acd-level = <0x882a5ffd>;
+					opp-supported-hw = <0xf>;
 				};
 
 				opp-1350000000 {
@@ -3758,6 +3766,7 @@
 					opp-level = <RPMH_REGULATOR_LEVEL_TURBO_L1>;
 					opp-peak-kBps = <2136718>;
 					qcom,opp-acd-level = <0x882a5ffd>;
+					opp-supported-hw = <0xf>;
 				};
 
 				opp-1550000000 {
@@ -3765,6 +3774,7 @@
 					opp-level = <RPMH_REGULATOR_LEVEL_TURBO_L3>;
 					opp-peak-kBps = <2136718>;
 					qcom,opp-acd-level = <0xa8295ffd>;
+					opp-supported-hw = <0x7>;
 				};
 
 				opp-1700000000 {
@@ -3772,6 +3782,7 @@
 					opp-level = <RPMH_REGULATOR_LEVEL_TURBO_L4>;
 					opp-peak-kBps = <2136718>;
 					qcom,opp-acd-level = <0x88295ffd>;
+					opp-supported-hw = <0x7>;
 				};
 
 				opp-1850000000 {
@@ -3779,6 +3790,7 @@
 					opp-level = <RPMH_REGULATOR_LEVEL_TURBO_L5>;
 					opp-peak-kBps = <2136718>;
 					qcom,opp-acd-level = <0x88285ffd>;
+					opp-supported-hw = <0x3>;
 				};
 			};
 		};
