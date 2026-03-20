@@ -178,6 +178,10 @@
 						remote-endpoint = <&usb_1_qmpphy_out>;
 					};
 				};
+			};
+		};
+	};
+
 	sound {
 		compatible = "qcom,glymur-sndcard";
 		model = "GLYMUR-CRD";
