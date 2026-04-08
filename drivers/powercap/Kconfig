@@ -93,4 +93,13 @@ config DTPM_DEVFREQ
 	help
 	  This enables support for device power limitation based on
 	  energy model.
+
+config QCOM_POWER_TELEMETRY
+	tristate "Qualcomm Technologies, Inc. Power Telemetry Interface module"
+	help
+	  This enables Qualcomm Technologies, Inc. power limits and
+	  telemetry interface module. It provides powercap framework-based
+	  interface to the SPEL hardware. The SPEL hardware provides reports
+	  detailing consumed energy and enforces operating power limits on the
+	  various subsystems.
 endif
